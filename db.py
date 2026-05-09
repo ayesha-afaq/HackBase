@@ -1,13 +1,15 @@
 import pyodbc
-conn = pyodbc.connect(
-    "DRIVER={ODBC Driver 18 for SQL Server};"
+conn_str_ayesha=( "DRIVER={ODBC Driver 18 for SQL Server};"
     "SERVER=DESKTOP-QQUVANE\\SQLEXPRESS;"
-    "DATABASE=AYESHA;"
+    "DATABASE=Hackathon;"
     "Trusted_Connection=yes;"
-    "TrustServerCertificate=yes;"
-)
+    "TrustServerCertificate=yes;")
+
+conn = pyodbc.connect(conn_str_ayesha)
 
 cursor = conn.cursor()
-cursor.execute("SELECT * FROM TAB1")
+
+#testing
+cursor.execute("SELECT * FROM Teams")
 print("connected to db: ", cursor.fetchall())
 # print(pyodbc.drivers())
