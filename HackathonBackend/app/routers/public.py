@@ -7,28 +7,23 @@ router = APIRouter(prefix='/public', tags=['Public'])
 # ── View all events (no login required) ─────────────────────────────
 @router.get('/events')
 def public_events():
-
     conn = None
-
+    cursor = None
     try:
         conn = get_connection()
         cursor = conn.cursor()
-
         cursor.execute("""
             SELECT event_id, event_name, start_date, end_date,
                    event_status, event_details
             FROM HackathonEvents
             ORDER BY start_date DESC
         """)
-
         rows = cursor.fetchall()
-
         if not rows:
             raise HTTPException(
                 status_code=404,
                 detail="No events found"
             )
-
         return [
             {
                 "event_id": r.event_id,
@@ -40,14 +35,19 @@ def public_events():
             }
             for r in rows
         ]
-
+    # Preserve intended HTTP errors like 404
+    except HTTPException:
+        raise
+    # Handle unexpected server/database errors
     except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=f"Error fetching events: {str(e)}"
         )
-
+    # Always close cursor and DB connection
     finally:
+        if cursor:
+            cursor.close()
         if conn:
             conn.close()
 
@@ -55,12 +55,22 @@ def public_events():
 # ── Event Results + Ranking ─────────────────────────────
 @router.get('/event-results/{event_id}')
 def event_results(event_id: int):
-
     conn = None
-
+    cursor = None
     try:
         conn = get_connection()
         cursor = conn.cursor()
+
+        # Check if the event actually exists first
+        cursor.execute("""
+            SELECT event_id FROM HackathonEvents
+            WHERE event_id = ?
+        """, (event_id,))
+        if not cursor.fetchone():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Event with id {event_id} not found"
+            )
 
         cursor.execute("""
             SELECT
@@ -74,35 +84,37 @@ def event_results(event_id: int):
             GROUP BY t.team_name
             ORDER BY avg_score DESC
         """, (event_id,))
-
         rows = cursor.fetchall()
 
         if not rows:
             raise HTTPException(
                 status_code=404,
-                detail=f"No results found for event_id {event_id}"
+                detail=f"No results found for event_id {event_id}. The event exists but has no evaluated projects yet."
             )
 
-        ranked = []
-        rank = 1
-
-        for r in rows:
-            ranked.append({
+        ranked = [
+            {
                 "rank": rank,
                 "team_name": r.team_name,
-                "average_score": float(r.avg_score),
+                "average_score": float(r.avg_score) if r.avg_score is not None else 0.0,
                 "evaluations": r.total_evals
-            })
-            rank += 1
-
+            }
+            for rank, r in enumerate(rows, start=1)
+        ]
         return ranked
 
+    # Preserve intended HTTP errors like 404
+    except HTTPException:
+        raise
+    # Handle unexpected server/database errors
     except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=f"Error fetching event results: {str(e)}"
         )
-
+    # Always close cursor and DB connection
     finally:
+        if cursor:
+            cursor.close()
         if conn:
             conn.close()
