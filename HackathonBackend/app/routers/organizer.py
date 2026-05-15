@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Request, Depends, HTTPException
 from app.database import get_connection
 from app.routers.auth import verify_token
+from datetime import date
 
 router = APIRouter(prefix='/organizer', tags=['Organizer'])
 
@@ -54,6 +55,25 @@ def verify_event_ownership(cursor, event_id, organizer_id):
     return event
 
 
+# ── VALIDATE REQUIRED FIELDS ─────────────────────────────────────
+def validate_required_fields(data, required_fields):
+
+    missing_fields = []
+
+    for field in required_fields:
+
+        if field not in data or data[field] in [None, ""]:
+
+            missing_fields.append(field)
+
+    if missing_fields:
+
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing required fields: {', '.join(missing_fields)}"
+        )
+
+
 # ── Create event ──────────────────────────────────────────────────────────────
 @router.post('/create-event')
 async def create_event(
@@ -69,6 +89,54 @@ async def create_event(
         )
 
     data = await request.json()
+
+    # ── VALIDATION ───────────────────────────────────────────────
+    validate_required_fields(
+        data,
+        [
+            "event_name",
+            "start_date",
+            "end_date",
+            "last_date_of_registration",
+            "max_team_size",
+        ]
+    )
+
+    # ── DATE FORMAT & LOGIC CHECKS ───────────────────────────────
+    try:
+
+        start_date       = date.fromisoformat(data['start_date'])
+        end_date         = date.fromisoformat(data['end_date'])
+        last_date_of_reg = date.fromisoformat(data['last_date_of_registration'])
+
+    except ValueError:
+
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid date format. Use YYYY-MM-DD."
+        )
+
+    if end_date < start_date:
+
+        raise HTTPException(
+            status_code=400,
+            detail="end_date cannot be before start_date."
+        )
+
+    if last_date_of_reg > start_date:
+
+        raise HTTPException(
+            status_code=400,
+            detail="last_date_of_registration must be on or before start_date."
+        )
+
+    # ── MAX TEAM SIZE CHECK ──────────────────────────────────────
+    if not isinstance(data['max_team_size'], int) or data['max_team_size'] < 1:
+
+        raise HTTPException(
+            status_code=400,
+            detail="max_team_size must be a positive integer."
+        )
 
     conn   = get_connection()
     cursor = conn.cursor()
@@ -662,25 +730,7 @@ def delete_team(
             detail="You cannot delete this team"
         )
 
-    # Delete members
-    cursor.execute(
-        '''
-        DELETE FROM TeamMembers
-        WHERE team_id = ?
-        ''',
-        (team_id,)
-    )
-
-    # Delete project
-    cursor.execute(
-        '''
-        DELETE FROM Projects
-        WHERE team_id = ?
-        ''',
-        (team_id,)
-    )
-
-    # Delete team
+    # Cascade (ON DELETE CASCADE) handles TeamMembers and Projects automatically
     cursor.execute(
         '''
         DELETE FROM Teams
