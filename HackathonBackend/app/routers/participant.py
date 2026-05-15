@@ -2,8 +2,9 @@ import random
 import string
 from datetime import date
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends, HTTPException
 from app.database import get_connection
+from app.routers.auth import verify_token
 
 router = APIRouter(prefix='/participant', tags=['Participant'])
 
@@ -50,22 +51,23 @@ def view_events():
 
 # ── Register for an event ─────────────────────────────────────────────────────
 @router.post('/register-event')
-async def register_event(request: Request):
+async def register_event(
+    request: Request,
+    user = Depends(verify_token)
+):
+
+    if user["role"] != "participant":
+        raise HTTPException(
+            status_code=403,
+            detail="Participants only"
+        )
 
     data = await request.json()
 
+    participant_id = user["participant_id"]
+
     conn = get_connection()
     cursor = conn.cursor()
-
-    # Check participant exists
-    cursor.execute(
-        'SELECT 1 FROM Participants WHERE participant_id = ?',
-        (data['participant_id'],)
-    )
-
-    if not cursor.fetchone():
-        conn.close()
-        return {'message': 'Participant not found'}
 
     # Check event exists
     cursor.execute(
@@ -100,7 +102,7 @@ async def register_event(request: Request):
         FROM EventRegistrations
         WHERE event_id = ? AND participant_id = ?
         ''',
-        (data['event_id'], data['participant_id'])
+        (data['event_id'], participant_id)
     )
 
     if cursor.fetchone():
@@ -113,7 +115,7 @@ async def register_event(request: Request):
         INSERT INTO EventRegistrations (event_id, participant_id)
         VALUES (?, ?)
         ''',
-        (data['event_id'], data['participant_id'])
+        (data['event_id'], participant_id)
     )
 
     conn.commit()
@@ -124,7 +126,22 @@ async def register_event(request: Request):
 
 # ── View my registered events ─────────────────────────────────────────────────
 @router.get('/my-events/{participant_id}')
-def my_events(participant_id: int):
+def my_events(
+    participant_id: int,
+    user = Depends(verify_token)
+):
+
+    if user["role"] != "participant":
+        raise HTTPException(
+            status_code=403,
+            detail="Participants only"
+        )
+
+    if participant_id != user["participant_id"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Unauthorized access"
+        )
 
     conn = get_connection()
     cursor = conn.cursor()
@@ -161,22 +178,23 @@ def my_events(participant_id: int):
 
 # ── Create a team ─────────────────────────────────────────────────────────────
 @router.post('/create-team')
-async def create_team(request: Request):
+async def create_team(
+    request: Request,
+    user = Depends(verify_token)
+):
+
+    if user["role"] != "participant":
+        raise HTTPException(
+            status_code=403,
+            detail="Participants only"
+        )
 
     data = await request.json()
 
+    team_lead = user["participant_id"]
+
     conn = get_connection()
     cursor = conn.cursor()
-
-    # Check participant exists
-    cursor.execute(
-        'SELECT 1 FROM Participants WHERE participant_id = ?',
-        (data['team_lead'],)
-    )
-
-    if not cursor.fetchone():
-        conn.close()
-        return {'message': 'Participant not found'}
 
     # Check event exists
     cursor.execute(
@@ -206,7 +224,7 @@ async def create_team(request: Request):
         FROM EventRegistrations
         WHERE event_id = ? AND participant_id = ?
         ''',
-        (data['event_id'], data['team_lead'])
+        (data['event_id'], team_lead)
     )
 
     if not cursor.fetchone():
@@ -220,7 +238,7 @@ async def create_team(request: Request):
         FROM TeamMembers
         WHERE event_id = ? AND participant_id = ?
         ''',
-        (data['event_id'], data['team_lead'])
+        (data['event_id'], team_lead)
     )
 
     if cursor.fetchone():
@@ -270,7 +288,7 @@ async def create_team(request: Request):
         (
             data['event_id'],
             data['team_name'],
-            data['team_lead'],
+            team_lead,
             team_code
         )
     )
@@ -287,7 +305,7 @@ async def create_team(request: Request):
         (
             team_id,
             data['event_id'],
-            data['team_lead']
+            team_lead
         )
     )
 
@@ -303,22 +321,23 @@ async def create_team(request: Request):
 
 # ── Join a team via code ──────────────────────────────────────────────────────
 @router.post('/join-team')
-async def join_team(request: Request):
+async def join_team(
+    request: Request,
+    user = Depends(verify_token)
+):
+
+    if user["role"] != "participant":
+        raise HTTPException(
+            status_code=403,
+            detail="Participants only"
+        )
 
     data = await request.json()
 
+    participant_id = user["participant_id"]
+
     conn = get_connection()
     cursor = conn.cursor()
-
-    # Check participant exists
-    cursor.execute(
-        'SELECT 1 FROM Participants WHERE participant_id = ?',
-        (data['participant_id'],)
-    )
-
-    if not cursor.fetchone():
-        conn.close()
-        return {'message': 'Participant not found'}
 
     # Check event exists
     cursor.execute(
@@ -348,7 +367,7 @@ async def join_team(request: Request):
         FROM EventRegistrations
         WHERE event_id = ? AND participant_id = ?
         ''',
-        (data['event_id'], data['participant_id'])
+        (data['event_id'], participant_id)
     )
 
     if not cursor.fetchone():
@@ -362,7 +381,7 @@ async def join_team(request: Request):
         FROM TeamMembers
         WHERE event_id = ? AND participant_id = ?
         ''',
-        (data['event_id'], data['participant_id'])
+        (data['event_id'], participant_id)
     )
 
     if cursor.fetchone():
@@ -414,7 +433,7 @@ async def join_team(request: Request):
         (
             team_id,
             data['event_id'],
-            data['participant_id']
+            participant_id
         )
     )
 
@@ -426,7 +445,23 @@ async def join_team(request: Request):
 
 # ── View my team for an event ─────────────────────────────────────────────────
 @router.get('/my-team/{participant_id}/{event_id}')
-def my_team(participant_id: int, event_id: int):
+def my_team(
+    participant_id: int,
+    event_id: int,
+    user = Depends(verify_token)
+):
+
+    if user["role"] != "participant":
+        raise HTTPException(
+            status_code=403,
+            detail="Participants only"
+        )
+
+    if participant_id != user["participant_id"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Unauthorized access"
+        )
 
     conn = get_connection()
     cursor = conn.cursor()
@@ -485,9 +520,20 @@ def my_team(participant_id: int, event_id: int):
 
 # ── Leave a team ──────────────────────────────────────────────────────────────
 @router.delete('/leave-team')
-async def leave_team(request: Request):
+async def leave_team(
+    request: Request,
+    user = Depends(verify_token)
+):
+
+    if user["role"] != "participant":
+        raise HTTPException(
+            status_code=403,
+            detail="Participants only"
+        )
 
     data = await request.json()
+
+    participant_id = user["participant_id"]
 
     conn = get_connection()
     cursor = conn.cursor()
@@ -509,7 +555,7 @@ async def leave_team(request: Request):
         return {'message': 'Team not found'}
 
     # Team lead cannot leave
-    if team.team_lead == data['participant_id']:
+    if team.team_lead == participant_id:
         conn.close()
         return {'message': 'Team lead cannot leave. Delete the team instead.'}
 
@@ -520,7 +566,7 @@ async def leave_team(request: Request):
         FROM TeamMembers
         WHERE team_id = ? AND participant_id = ?
         ''',
-        (data['team_id'], data['participant_id'])
+        (data['team_id'], participant_id)
     )
 
     if not cursor.fetchone():
@@ -533,7 +579,7 @@ async def leave_team(request: Request):
         DELETE FROM TeamMembers
         WHERE team_id = ? AND participant_id = ?
         ''',
-        (data['team_id'], data['participant_id'])
+        (data['team_id'], participant_id)
     )
 
     conn.commit()
@@ -544,14 +590,26 @@ async def leave_team(request: Request):
 
 # ── Submit a project ──────────────────────────────────────────────────────────
 @router.post('/submit-project')
-async def submit_project(request: Request):
+async def submit_project(
+    request: Request,
+    user = Depends(verify_token)
+):
+
+    if user["role"] != "participant":
+        raise HTTPException(
+            status_code=403,
+            detail="Participants only"
+        )
 
     data = await request.json()
+
+    # FIX 2: Verify the caller is actually a member of the team they're submitting for
+    participant_id = user["participant_id"]
 
     conn = get_connection()
     cursor = conn.cursor()
 
-    # Check team exists
+    # Check team exists and get event status
     cursor.execute(
         '''
         SELECT t.team_id, he.event_status
@@ -573,6 +631,23 @@ async def submit_project(request: Request):
     if team.event_status != 'ongoing':
         conn.close()
         return {'message': 'Projects can only be submitted during ongoing events'}
+
+    # FIX 2: Confirm caller belongs to this team
+    cursor.execute(
+        '''
+        SELECT 1
+        FROM TeamMembers
+        WHERE team_id = ? AND participant_id = ?
+        ''',
+        (data['team_id'], participant_id)
+    )
+
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(
+            status_code=403,
+            detail="You are not a member of this team"
+        )
 
     # Already submitted?
     cursor.execute(
@@ -617,10 +692,38 @@ async def submit_project(request: Request):
 
 # ── View my team's project ────────────────────────────────────────────────────
 @router.get('/my-project/{team_id}')
-def my_project(team_id: int):
+def my_project(
+    team_id: int,
+    user = Depends(verify_token)
+):
+
+    if user["role"] != "participant":
+        raise HTTPException(
+            status_code=403,
+            detail="Participants only"
+        )
+
+    # FIX 3: Verify caller belongs to this team before showing the project
+    participant_id = user["participant_id"]
 
     conn = get_connection()
     cursor = conn.cursor()
+
+    cursor.execute(
+        '''
+        SELECT 1
+        FROM TeamMembers
+        WHERE team_id = ? AND participant_id = ?
+        ''',
+        (team_id, participant_id)
+    )
+
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(
+            status_code=403,
+            detail="Unauthorized access"
+        )
 
     cursor.execute(
         '''
@@ -651,7 +754,22 @@ def my_project(team_id: int):
 
 # ── View my profile ───────────────────────────────────────────────────────────
 @router.get('/profile/{participant_id}')
-def profile(participant_id: int):
+def profile(
+    participant_id: int,
+    user = Depends(verify_token)
+):
+
+    if user["role"] != "participant":
+        raise HTTPException(
+            status_code=403,
+            detail="Participants only"
+        )
+
+    if participant_id != user["participant_id"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Unauthorized access"
+        )
 
     conn = get_connection()
     cursor = conn.cursor()
@@ -692,7 +810,8 @@ def profile(participant_id: int):
     conn.close()
 
     return {
-        'name': r.firstname + ' ' + r.middlename + ' ' + r.lastname,
+        # FIX 1: Use filter(None, ...) to safely skip NULL middlename
+        'name': ' '.join(filter(None, [r.firstname, r.middlename, r.lastname])),
         'email': r.email,
         'cnic': r.cnic,
         'date_of_birth': str(r.date_of_birth) if r.date_of_birth else None,
