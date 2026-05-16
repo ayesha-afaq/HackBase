@@ -156,7 +156,7 @@ async def login(request: Request):
     Login using email + password.
 
     Returns:
-        token
+        token (JWT — includes user_id, role, and the role-specific ID)
         role
         user_id
         participant_id / judge_id / organizer_id
@@ -263,10 +263,16 @@ async def login(request: Request):
             extra['organizer_id'] = row.organizer_id
 
     # ── CREATE JWT TOKEN ─────────────────────────────────────────
-    token = create_access_token({
+    # FIX: include the role-specific ID inside the JWT payload so that
+    # backend route handlers can read it via verify_token without an
+    # extra DB query.
+    token_payload = {
         "user_id": user.user_id,
-        "role": user.role
-    })
+        "role": user.role,
+        **extra          # participant_id / judge_id / organizer_id
+    }
+
+    token = create_access_token(token_payload)
 
     return {
         'message' : 'Login successful',
