@@ -392,6 +392,14 @@ async def update_feedback(
     try:
         judge_id = get_judge_id(user["user_id"], cursor)
 
+        # ── Validate required fields ──────────────────────────────────────────
+        if 'project_id' not in data:
+            raise HTTPException(status_code=400, detail='project_id is required')
+
+        feedback = data.get('feedback')
+        if feedback is None:
+            raise HTTPException(status_code=400, detail='feedback is required')
+
         cursor.execute(
             'SELECT 1 FROM Evaluations WHERE project_id = ? AND judge_id = ?',
             (data['project_id'], judge_id)
@@ -405,7 +413,7 @@ async def update_feedback(
             SET    feedback = ?
             WHERE  project_id = ? AND judge_id = ?
             ''',
-            (data['feedback'], data['project_id'], judge_id)
+            (feedback, data['project_id'], judge_id)
         )
         conn.commit()
 

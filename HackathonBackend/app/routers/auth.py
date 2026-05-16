@@ -38,12 +38,18 @@ def verify_token(authorization: str = Header(None)):
             detail="Token missing"
         )
 
+    parts = authorization.split(" ")
+
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid authorization format. Expected: Bearer <token>"
+        )
+
     try:
 
-        token = authorization.split(" ")[1]
-
         payload = jwt.decode(
-            token,
+            parts[1],
             SECRET_KEY,
             algorithms=[ALGORITHM]
         )
@@ -67,82 +73,111 @@ async def register(request: Request):
 
     Required:
         cnic, firstname, lastname,
-        email, password,
-        date_of_birth, city, institution
+        email, password
 
     Optional:
         middlename
+        date_of_birth, city, institution
         phone_numbers (list)
     """
 
     data = await request.json()
 
+    # ── Validate required fields ─────────────────────────────────
+    required = ['cnic', 'firstname', 'lastname', 'email', 'password']
+    missing  = [f for f in required if not data.get(f)]
+
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing required fields: {', '.join(missing)}"
+        )
+
     conn   = get_connection()
     cursor = conn.cursor()
 
-    # Insert into Users
-    cursor.execute(
-        '''
-        INSERT INTO Users
-            (
-                cnic,
-                firstname,
-                middlename,
-                lastname,
-                email,
-                password,
-                role,
-                created_at
-            )
-        OUTPUT INSERTED.user_id
-        VALUES (?, ?, ?, ?, ?, ?, 'participant', GETDATE())
-        ''',
-        (
-            data['cnic'],
-            data['firstname'],
-            data.get('middlename'),
-            data['lastname'],
-            data['email'],
-            data['password'],
-        )
-    )
+    try:
 
-    user_id = cursor.fetchone()[0]
-
-    # Insert into Participants
-    cursor.execute(
-        '''
-        INSERT INTO Participants
-            (
-                user_id,
-                date_of_birth,
-                city,
-                institution
-            )
-        VALUES (?, ?, ?, ?)
-        ''',
-        (
-            user_id,
-            data.get('date_of_birth'),
-            data.get('city'),
-            data.get('institution'),
-        )
-    )
-
-    # Insert phone numbers
-    for phone in data.get('phone_numbers', []):
-
+        # Insert into Users
         cursor.execute(
             '''
-            INSERT INTO Telephones
-                (user_id, phone_number)
-            VALUES (?, ?)
+            INSERT INTO Users
+                (
+                    cnic,
+                    firstname,
+                    middlename,
+                    lastname,
+                    email,
+                    password,
+                    role,
+                    created_at
+                )
+            OUTPUT INSERTED.user_id
+            VALUES (?, ?, ?, ?, ?, ?, 'participant', GETDATE())
             ''',
-            (user_id, phone)
+            (
+                data['cnic'],
+                data['firstname'],
+                data.get('middlename'),
+                data['lastname'],
+                data['email'],
+                data['password'],
+            )
         )
 
-    conn.commit()
-    conn.close()
+        user_id = cursor.fetchone()[0]
+
+        # Insert into Participants
+        cursor.execute(
+            '''
+            INSERT INTO Participants
+                (
+                    user_id,
+                    date_of_birth,
+                    city,
+                    institution
+                )
+            VALUES (?, ?, ?, ?)
+            ''',
+            (
+                user_id,
+                data.get('date_of_birth'),
+                data.get('city'),
+                data.get('institution'),
+            )
+        )
+
+        # Insert phone numbers
+        for phone in data.get('phone_numbers', []):
+
+            cursor.execute(
+                '''
+                INSERT INTO Telephones
+                    (user_id, phone_number)
+                VALUES (?, ?)
+                ''',
+                (user_id, phone)
+            )
+
+        conn.commit()
+
+    except HTTPException:
+        conn.rollback()
+        raise
+
+    except Exception as e:
+        conn.rollback()
+        err = str(e)
+        # SQL Server error 2627 = unique constraint, 2601 = duplicate key
+        if '2627' in err or '2601' in err or 'UNIQUE' in err.upper():
+            raise HTTPException(
+                status_code=409,
+                detail="An account with this CNIC or email already exists"
+            )
+        raise HTTPException(status_code=500, detail=err)
+
+    finally:
+        conn.close()
 
     return {
         'message': 'Registered successfully. You can now log in.'
@@ -164,112 +199,66 @@ async def login(request: Request):
 
     data = await request.json()
 
+    if not data.get('email') or not data.get('password'):
+        raise HTTPException(
+            status_code=400,
+            detail="email and password are required"
+        )
+
     conn   = get_connection()
     cursor = conn.cursor()
 
-    cursor.execute(
-        '''
-        SELECT user_id,
-               firstname,
-               lastname,
-               role
-        FROM Users
-        WHERE email = ?
-          AND password = ?
-        ''',
-        (
-            data['email'],
-            data['password']
+    try:
+
+        # Single query: fetch user + role-specific ID via LEFT JOINs
+        cursor.execute(
+            '''
+            SELECT
+                u.user_id,
+                u.firstname,
+                u.lastname,
+                u.role,
+                p.participant_id,
+                j.judge_id,
+                o.organizer_id
+            FROM Users u
+            LEFT JOIN Participants p ON p.user_id = u.user_id
+            LEFT JOIN Judges       j ON j.user_id = u.user_id
+            LEFT JOIN Organizers   o ON o.user_id = u.user_id
+            WHERE u.email    = ?
+              AND u.password = ?
+            ''',
+            (data['email'], data['password'])
         )
-    )
 
-    user = cursor.fetchone()
+        user = cursor.fetchone()
 
-    conn.close()
+    finally:
+        conn.close()
 
     if not user:
-
         raise HTTPException(
             status_code=401,
             detail='Invalid email or password'
         )
 
+    # Build role-specific extra fields
     extra = {}
 
-    # ── Participant ID ───────────────────────────────────────────
-    if user.role == 'participant':
+    if user.role == 'participant' and user.participant_id:
+        extra['participant_id'] = user.participant_id
 
-        conn2   = get_connection()
-        cursor2 = conn2.cursor()
+    elif user.role == 'judge' and user.judge_id:
+        extra['judge_id'] = user.judge_id
 
-        cursor2.execute(
-            '''
-            SELECT participant_id
-            FROM Participants
-            WHERE user_id = ?
-            ''',
-            (user.user_id,)
-        )
-
-        row = cursor2.fetchone()
-
-        conn2.close()
-
-        if row:
-            extra['participant_id'] = row.participant_id
-
-    # ── Judge ID ─────────────────────────────────────────────────
-    if user.role == 'judge':
-
-        conn2   = get_connection()
-        cursor2 = conn2.cursor()
-
-        cursor2.execute(
-            '''
-            SELECT judge_id
-            FROM Judges
-            WHERE user_id = ?
-            ''',
-            (user.user_id,)
-        )
-
-        row = cursor2.fetchone()
-
-        conn2.close()
-
-        if row:
-            extra['judge_id'] = row.judge_id
-
-    # ── Organizer ID ─────────────────────────────────────────────
-    if user.role == 'organizer':
-
-        conn2   = get_connection()
-        cursor2 = conn2.cursor()
-
-        cursor2.execute(
-            '''
-            SELECT organizer_id
-            FROM Organizers
-            WHERE user_id = ?
-            ''',
-            (user.user_id,)
-        )
-
-        row = cursor2.fetchone()
-
-        conn2.close()
-
-        if row:
-            extra['organizer_id'] = row.organizer_id
+    elif user.role == 'organizer' and user.organizer_id:
+        extra['organizer_id'] = user.organizer_id
 
     # ── CREATE JWT TOKEN ─────────────────────────────────────────
-    # FIX: include the role-specific ID inside the JWT payload so that
-    # backend route handlers can read it via verify_token without an
-    # extra DB query.
     token_payload = {
         "user_id": user.user_id,
-        "role": user.role,
-        **extra          # participant_id / judge_id / organizer_id
+        "role"   : user.role,
+        **extra
     }
 
     token = create_access_token(token_payload)
