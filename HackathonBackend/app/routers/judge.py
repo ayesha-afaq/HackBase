@@ -1,8 +1,21 @@
 from fastapi import APIRouter, HTTPException, Request, Depends
 from app.database import get_connection
 from app.routers.auth import verify_token
+from pydantic import BaseModel
+from typing import Optional
 
 router = APIRouter(prefix='/judge', tags=['Judge'])
+
+
+# ── REQUEST MODELS ────────────────────────────────────────────────
+class EvaluateRequest(BaseModel):
+    project_id: int
+    score     : float
+    feedback  : Optional[str] = None
+
+class UpdateFeedbackRequest(BaseModel):
+    project_id: int
+    feedback  : str
 
 
 # ── HELPER ────────────────────────────────────────────────────────────────────
@@ -259,37 +272,22 @@ def project_detail(project_id: int, user = Depends(verify_token)):
 # ── 4. Submit evaluation ───────────────────────────────────────────────────────
 @router.post('/evaluate')
 async def evaluate_project(
-    request: Request,
+    data: EvaluateRequest,
     user = Depends(verify_token)
 ):
     """
     Required: project_id, score (0-100)
     Optional: feedback
-
-    Project status becomes 'evaluated' only when every judge
-    assigned to that event has submitted their score.
     """
-    data = await request.json()
-
     conn   = get_connection()
     cursor = conn.cursor()
 
     try:
         judge_id = get_judge_id(user["user_id"], cursor)
 
-        # ── Score validation ──────────────────────────────────────────────────
-        score = data.get('score')
-
-        if score is None:
-            raise HTTPException(status_code=400, detail='Score is required')
-
-        if not isinstance(score, (int, float)):
-            raise HTTPException(status_code=400, detail='Score must be a number')
-
-        if score < 0 or score > 100:
+        if data.score < 0 or data.score > 100:
             raise HTTPException(status_code=400, detail='Score must be between 0 and 100')
 
-        # ── Verify judge is assigned to this event ────────────────────────────
         cursor.execute(
             '''
             SELECT ej.judge_id
@@ -298,34 +296,26 @@ async def evaluate_project(
             INNER JOIN Projects p  ON t.team_id   = p.team_id
             WHERE  p.project_id = ? AND ej.judge_id = ?
             ''',
-            (data['project_id'], judge_id)
+            (data.project_id, judge_id)
         )
         if not cursor.fetchone():
             raise HTTPException(status_code=403, detail='You are not assigned to evaluate this project')
 
-        # ── Prevent double evaluation ─────────────────────────────────────────
         cursor.execute(
             'SELECT 1 FROM Evaluations WHERE project_id = ? AND judge_id = ?',
-            (data['project_id'], judge_id)
+            (data.project_id, judge_id)
         )
         if cursor.fetchone():
             raise HTTPException(status_code=409, detail='You have already evaluated this project')
 
-        # ── Insert the evaluation ─────────────────────────────────────────────
         cursor.execute(
             '''
             INSERT INTO Evaluations (project_id, judge_id, score, feedback)
             VALUES (?, ?, ?, ?)
             ''',
-            (
-                data['project_id'],
-                judge_id,
-                score,
-                data.get('feedback'),
-            )
+            (data.project_id, judge_id, data.score, data.feedback)
         )
 
-        # ── Smart status update ───────────────────────────────────────────────
         cursor.execute(
             '''
             SELECT COUNT(*)
@@ -334,7 +324,7 @@ async def evaluate_project(
             INNER JOIN Projects p  ON t.team_id   = p.team_id
             WHERE  p.project_id = ?
             ''',
-            (data['project_id'],)
+            (data.project_id,)
         )
         total_judges = cursor.fetchone()[0]
 
@@ -343,14 +333,14 @@ async def evaluate_project(
 
         cursor.execute(
             'SELECT COUNT(*) FROM Evaluations WHERE project_id = ?',
-            (data['project_id'],)
+            (data.project_id,)
         )
         done = cursor.fetchone()[0]
 
         if done >= total_judges:
             cursor.execute(
                 "UPDATE Projects SET status = 'evaluated' WHERE project_id = ?",
-                (data['project_id'],)
+                (data.project_id,)
             )
 
         conn.commit()
@@ -377,32 +367,22 @@ async def evaluate_project(
 # ── 5. Update feedback on an existing evaluation ──────────────────────────────
 @router.put('/update-feedback')
 async def update_feedback(
-    request: Request,
+    data: UpdateFeedbackRequest,
     user = Depends(verify_token)
 ):
     """
     Required: project_id, feedback
     Score cannot be changed to keep results fair.
     """
-    data = await request.json()
-
     conn   = get_connection()
     cursor = conn.cursor()
 
     try:
         judge_id = get_judge_id(user["user_id"], cursor)
 
-        # ── Validate required fields ──────────────────────────────────────────
-        if 'project_id' not in data:
-            raise HTTPException(status_code=400, detail='project_id is required')
-
-        feedback = data.get('feedback')
-        if feedback is None:
-            raise HTTPException(status_code=400, detail='feedback is required')
-
         cursor.execute(
             'SELECT 1 FROM Evaluations WHERE project_id = ? AND judge_id = ?',
-            (data['project_id'], judge_id)
+            (data.project_id, judge_id)
         )
         if not cursor.fetchone():
             raise HTTPException(status_code=404, detail='No evaluation found. Submit an evaluation first.')
@@ -413,7 +393,7 @@ async def update_feedback(
             SET    feedback = ?
             WHERE  project_id = ? AND judge_id = ?
             ''',
-            (feedback, data['project_id'], judge_id)
+            (data.feedback, data.project_id, judge_id)
         )
         conn.commit()
 

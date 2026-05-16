@@ -1,8 +1,34 @@
-from fastapi import APIRouter, Request, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from app.database import get_connection
 from app.routers.auth import verify_token
+from pydantic import BaseModel
+from typing import Optional, List
 
 router = APIRouter(prefix='/admin', tags=['Admin'])
+
+
+# ── REQUEST MODELS ────────────────────────────────────────────────
+class CreateJudgeRequest(BaseModel):
+    cnic               : str
+    firstname          : str
+    middlename         : Optional[str]   = None
+    lastname           : str
+    email              : str
+    password           : str
+    commission_per_eval: float
+    degrees            : Optional[List[str]] = []
+    phone_numbers      : Optional[List[str]] = []
+
+
+class CreateOrganizerRequest(BaseModel):
+    cnic         : str
+    firstname    : str
+    middlename   : Optional[str]   = None
+    lastname     : str
+    email        : str
+    password     : str
+    salary       : Optional[float] = None
+    phone_numbers: Optional[List[str]] = []
 
 
 # ── HELPER DUPLICATE CHECK FUNCTION ─────────────────────────────
@@ -54,7 +80,7 @@ def validate_required_fields(data, required_fields):
 # ── Create Judge ──────────────────────────────────────────────────────────────
 @router.post('/create-judge')
 async def create_judge(
-    request: Request,
+    data: CreateJudgeRequest,
     user = Depends(verify_token)
 ):
     """
@@ -71,137 +97,66 @@ async def create_judge(
         phone_numbers (list)
     """
 
-    # ── Only Admin Allowed ───────────────────────────────────────
     if user["role"] != "admin":
-
-        raise HTTPException(
-            status_code=403,
-            detail="Admins only"
-        )
-
-    data = await request.json()
-
-    # ── VALIDATION ───────────────────────────────────────────────
-    validate_required_fields(
-        data,
-        [
-            "cnic",
-            "firstname",
-            "lastname",
-            "email",
-            "password",
-            "commission_per_eval"
-        ]
-    )
+        raise HTTPException(status_code=403, detail="Admins only")
 
     conn   = get_connection()
     cursor = conn.cursor()
 
     try:
 
-        # ── DUPLICATE CHECK ──────────────────────────────────────────
-        check_duplicate_user(cursor, data['cnic'], data['email'])
+        check_duplicate_user(cursor, data.cnic, data.email)
 
-        # Insert into Users
         cursor.execute(
             '''
             INSERT INTO Users
-                (
-                    cnic,
-                    firstname,
-                    middlename,
-                    lastname,
-                    email,
-                    password,
-                    role,
-                    created_at
-                )
+                (cnic, firstname, middlename, lastname, email, password, role, created_at)
             OUTPUT INSERTED.user_id
             VALUES (?, ?, ?, ?, ?, ?, 'judge', GETDATE())
             ''',
-            (
-                data['cnic'],
-                data['firstname'],
-                data.get('middlename'),
-                data['lastname'],
-                data['email'],
-                data['password'],
-            )
+            (data.cnic, data.firstname, data.middlename, data.lastname, data.email, data.password)
         )
 
         user_id = cursor.fetchone()[0]
 
-        # Insert into Judges table
         cursor.execute(
             '''
-            INSERT INTO Judges
-                (
-                    user_id,
-                    commission_per_eval
-                )
+            INSERT INTO Judges (user_id, commission_per_eval)
             OUTPUT INSERTED.judge_id
             VALUES (?, ?)
             ''',
-            (
-                user_id,
-                data['commission_per_eval']
-            )
+            (user_id, data.commission_per_eval)
         )
 
         judge_id = cursor.fetchone()[0]
 
-        # Insert Degrees
-        for degree in set(data.get('degrees', [])):
-
+        for degree in set(data.degrees or []):
             cursor.execute(
-                '''
-                INSERT INTO Degrees
-                    (
-                        judge_id,
-                        degree
-                    )
-                VALUES (?, ?)
-                ''',
-                (
-                    judge_id,
-                    degree
-                )
+                'INSERT INTO Degrees (judge_id, degree) VALUES (?, ?)',
+                (judge_id, degree)
             )
 
-        # Insert Phone Numbers
-        for phone in set(data.get('phone_numbers', [])):
-
+        for phone in set(data.phone_numbers or []):
             cursor.execute(
-                '''
-                INSERT INTO Telephones
-                    (
-                        user_id,
-                        phone_number
-                    )
-                VALUES (?, ?)
-                ''',
-                (
-                    user_id,
-                    phone
-                )
+                'INSERT INTO Telephones (user_id, phone_number) VALUES (?, ?)',
+                (user_id, phone)
             )
 
         conn.commit()
 
         return {
-            'message': 'Judge created successfully',
+            'message' : 'Judge created successfully',
             'judge_id': judge_id
         }
 
     finally:
-
         conn.close()
 
 
 # ── Create Organizer ──────────────────────────────────────────────────────────
 @router.post('/create-organizer')
 async def create_organizer(
-    request: Request,
+    data: CreateOrganizerRequest,
     user = Depends(verify_token)
 ):
     """
@@ -212,116 +167,56 @@ async def create_organizer(
         email, password
 
     Optional:
-        middlename
-        salary
-        phone_numbers
+        middlename, salary, phone_numbers
     """
 
-    # ── Only Admin Allowed ───────────────────────────────────────
     if user["role"] != "admin":
-
-        raise HTTPException(
-            status_code=403,
-            detail="Admins only"
-        )
-
-    data = await request.json()
-
-    # ── VALIDATION ───────────────────────────────────────────────
-    validate_required_fields(
-        data,
-        [
-            "cnic",
-            "firstname",
-            "lastname",
-            "email",
-            "password"
-        ]
-    )
+        raise HTTPException(status_code=403, detail="Admins only")
 
     conn   = get_connection()
     cursor = conn.cursor()
 
     try:
 
-        # ── DUPLICATE CHECK ──────────────────────────────────────────
-        check_duplicate_user(cursor, data['cnic'], data['email'])
+        check_duplicate_user(cursor, data.cnic, data.email)
 
-        # Insert into Users
         cursor.execute(
             '''
             INSERT INTO Users
-                (
-                    cnic,
-                    firstname,
-                    middlename,
-                    lastname,
-                    email,
-                    password,
-                    role,
-                    created_at
-                )
+                (cnic, firstname, middlename, lastname, email, password, role, created_at)
             OUTPUT INSERTED.user_id
             VALUES (?, ?, ?, ?, ?, ?, 'organizer', GETDATE())
             ''',
-            (
-                data['cnic'],
-                data['firstname'],
-                data.get('middlename'),
-                data['lastname'],
-                data['email'],
-                data['password'],
-            )
+            (data.cnic, data.firstname, data.middlename, data.lastname, data.email, data.password)
         )
 
         user_id = cursor.fetchone()[0]
 
-        # Insert into Organizers
         cursor.execute(
             '''
-            INSERT INTO Organizers
-                (
-                    user_id,
-                    salary
-                )
+            INSERT INTO Organizers (user_id, salary)
             OUTPUT INSERTED.organizer_id
             VALUES (?, ?)
             ''',
-            (
-                user_id,
-                data.get('salary')
-            )
+            (user_id, data.salary)
         )
 
         organizer_id = cursor.fetchone()[0]
 
-        # Insert phone numbers (deduplicated)
-        for phone in set(data.get('phone_numbers', [])):
-
+        for phone in set(data.phone_numbers or []):
             cursor.execute(
-                '''
-                INSERT INTO Telephones
-                    (
-                        user_id,
-                        phone_number
-                    )
-                VALUES (?, ?)
-                ''',
-                (
-                    user_id,
-                    phone
-                )
+                'INSERT INTO Telephones (user_id, phone_number) VALUES (?, ?)',
+                (user_id, phone)
             )
 
         conn.commit()
 
         return {
-            'message': 'Organizer created successfully',
+            'message'     : 'Organizer created successfully',
             'organizer_id': organizer_id
         }
 
     finally:
-
         conn.close()
 
 

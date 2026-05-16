@@ -2,8 +2,36 @@ from fastapi import APIRouter, Request, Depends, HTTPException
 from app.database import get_connection
 from app.routers.auth import verify_token
 from datetime import date
+from pydantic import BaseModel
+from typing import Optional
 
 router = APIRouter(prefix='/organizer', tags=['Organizer'])
+
+
+# ── REQUEST MODELS ────────────────────────────────────────────────
+class CreateEventRequest(BaseModel):
+    event_name                : str
+    start_date                : str
+    end_date                  : str
+    last_date_of_registration : str
+    max_team_size             : int
+    event_details             : Optional[str]   = None
+    budget                    : Optional[float] = 0
+    funding                   : Optional[float] = 0
+    first_prize               : Optional[float] = 0
+    second_prize              : Optional[float] = 0
+    third_prize               : Optional[float] = 0
+    event_status              : Optional[str]   = 'upcoming'
+
+
+class UpdateEventStatusRequest(BaseModel):
+    event_id    : int
+    event_status: str
+
+
+class AssignJudgeRequest(BaseModel):
+    event_id: int
+    judge_id: int
 
 
 # ── HELPER FUNCTION ──────────────────────────────────────────────
@@ -77,203 +105,99 @@ def validate_required_fields(data, required_fields):
 # ── Create event ──────────────────────────────────────────────────────────────
 @router.post('/create-event')
 async def create_event(
-    request: Request,
+    data: CreateEventRequest,
     user = Depends(verify_token)
 ):
 
     if user["role"] != "organizer":
+        raise HTTPException(status_code=403, detail="Organizers only")
 
-        raise HTTPException(
-            status_code=403,
-            detail="Organizers only"
-        )
-
-    data = await request.json()
-
-    # ── VALIDATION ───────────────────────────────────────────────
-    validate_required_fields(
-        data,
-        [
-            "event_name",
-            "start_date",
-            "end_date",
-            "last_date_of_registration",
-            "max_team_size",
-        ]
-    )
-
-    # ── DATE FORMAT & LOGIC CHECKS ───────────────────────────────
     try:
-
-        start_date       = date.fromisoformat(data['start_date'])
-        end_date         = date.fromisoformat(data['end_date'])
-        last_date_of_reg = date.fromisoformat(data['last_date_of_registration'])
-
+        start_date       = date.fromisoformat(data.start_date)
+        end_date         = date.fromisoformat(data.end_date)
+        last_date_of_reg = date.fromisoformat(data.last_date_of_registration)
     except ValueError:
-
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid date format. Use YYYY-MM-DD."
-        )
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
 
     if end_date < start_date:
-
-        raise HTTPException(
-            status_code=400,
-            detail="end_date cannot be before start_date."
-        )
+        raise HTTPException(status_code=400, detail="end_date cannot be before start_date.")
 
     if last_date_of_reg > start_date:
+        raise HTTPException(status_code=400, detail="last_date_of_registration must be on or before start_date.")
 
-        raise HTTPException(
-            status_code=400,
-            detail="last_date_of_registration must be on or before start_date."
-        )
-
-    # ── MAX TEAM SIZE CHECK ──────────────────────────────────────
-    if not isinstance(data['max_team_size'], int) or data['max_team_size'] < 1:
-
-        raise HTTPException(
-            status_code=400,
-            detail="max_team_size must be a positive integer."
-        )
+    if data.max_team_size < 1:
+        raise HTTPException(status_code=400, detail="max_team_size must be a positive integer.")
 
     conn   = get_connection()
     cursor = conn.cursor()
 
     try:
 
-        organizer_id = get_logged_in_organizer(
-            cursor,
-            user["user_id"]
-        )
+        organizer_id = get_logged_in_organizer(cursor, user["user_id"])
 
         cursor.execute(
             '''
             INSERT INTO HackathonEvents
-                (
-                    event_name,
-                    start_date,
-                    end_date,
-                    last_date_of_registration,
-                    max_team_size,
-                    event_details,
-                    organizer_id,
-                    budget,
-                    funding,
-                    first_prize,
-                    second_prize,
-                    third_prize,
-                    event_status
-                )
+                (event_name, start_date, end_date, last_date_of_registration,
+                 max_team_size, event_details, organizer_id, budget, funding,
+                 first_prize, second_prize, third_prize, event_status)
             OUTPUT INSERTED.event_id
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''',
             (
-                data['event_name'],
-                data['start_date'],
-                data['end_date'],
-                data['last_date_of_registration'],
-                data['max_team_size'],
-                data.get('event_details'),
-                organizer_id,
-                data.get('budget', 0),
-                data.get('funding', 0),
-                data.get('first_prize', 0),
-                data.get('second_prize', 0),
-                data.get('third_prize', 0),
-                data.get('event_status', 'upcoming'),
+                data.event_name, data.start_date, data.end_date,
+                data.last_date_of_registration, data.max_team_size,
+                data.event_details, organizer_id, data.budget, data.funding,
+                data.first_prize, data.second_prize, data.third_prize,
+                data.event_status,
             )
         )
 
         event_id = cursor.fetchone()[0]
-
         conn.commit()
 
         return {
-            'message': 'Event created successfully',
+            'message' : 'Event created successfully',
             'event_id': event_id
         }
 
     finally:
-
         conn.close()
 
 
 # ── Update event status ───────────────────────────────────────────────────────
 @router.put('/update-event-status')
 async def update_event_status(
-    request: Request,
+    data: UpdateEventStatusRequest,
     user = Depends(verify_token)
 ):
 
     if user["role"] != "organizer":
+        raise HTTPException(status_code=403, detail="Organizers only")
 
-        raise HTTPException(
-            status_code=403,
-            detail="Organizers only"
-        )
+    valid_statuses = ('upcoming', 'ongoing', 'completed')
 
-    data = await request.json()
-
-    # ── VALIDATION ───────────────────────────────────────────────
-    validate_required_fields(
-        data,
-        [
-            "event_id",
-            "event_status"
-        ]
-    )
-
-    valid_statuses = (
-        'upcoming',
-        'ongoing',
-        'completed'
-    )
-
-    if data['event_status'] not in valid_statuses:
-
-        raise HTTPException(
-            status_code=400,
-            detail=f'Invalid status. Choose from: {valid_statuses}'
-        )
+    if data.event_status not in valid_statuses:
+        raise HTTPException(status_code=400, detail=f'Invalid status. Choose from: {valid_statuses}')
 
     conn   = get_connection()
     cursor = conn.cursor()
 
     try:
 
-        organizer_id = get_logged_in_organizer(
-            cursor,
-            user["user_id"]
-        )
-
-        verify_event_ownership(
-            cursor,
-            data["event_id"],
-            organizer_id
-        )
+        organizer_id = get_logged_in_organizer(cursor, user["user_id"])
+        verify_event_ownership(cursor, data.event_id, organizer_id)
 
         cursor.execute(
-            '''
-            UPDATE HackathonEvents
-            SET event_status = ?
-            WHERE event_id = ?
-            ''',
-            (
-                data['event_status'],
-                data['event_id']
-            )
+            'UPDATE HackathonEvents SET event_status = ? WHERE event_id = ?',
+            (data.event_status, data.event_id)
         )
 
         conn.commit()
 
-        return {
-            'message': 'Event status updated successfully'
-        }
+        return {'message': 'Event status updated successfully'}
 
     finally:
-
         conn.close()
 
 
@@ -412,96 +336,42 @@ def event_detail(
 # ── Assign judge ────────────────────────────────────────────────
 @router.post('/assign-judge')
 async def assign_judge(
-    request: Request,
+    data: AssignJudgeRequest,
     user = Depends(verify_token)
 ):
 
     if user["role"] != "organizer":
-
-        raise HTTPException(
-            status_code=403,
-            detail="Organizers only"
-        )
-
-    data = await request.json()
-
-    # ── VALIDATION ───────────────────────────────────────────────
-    validate_required_fields(
-        data,
-        [
-            "event_id",
-            "judge_id"
-        ]
-    )
+        raise HTTPException(status_code=403, detail="Organizers only")
 
     conn   = get_connection()
     cursor = conn.cursor()
 
     try:
 
-        organizer_id = get_logged_in_organizer(
-            cursor,
-            user["user_id"]
-        )
+        organizer_id = get_logged_in_organizer(cursor, user["user_id"])
+        verify_event_ownership(cursor, data.event_id, organizer_id)
 
-        verify_event_ownership(
-            cursor,
-            data["event_id"],
-            organizer_id
-        )
-
-        # ── Check judge exists ───────────────────────────────────
-        cursor.execute(
-            'SELECT judge_id FROM Judges WHERE judge_id = ?',
-            (data['judge_id'],)
-        )
-
+        cursor.execute('SELECT judge_id FROM Judges WHERE judge_id = ?', (data.judge_id,))
         if not cursor.fetchone():
+            raise HTTPException(status_code=400, detail="Judge not found")
 
-            raise HTTPException(
-                status_code=400,
-                detail="Judge not found"
-            )
-
-        # ── Check not already assigned ───────────────────────────
         cursor.execute(
-            '''
-            SELECT 1 FROM EventJudges
-            WHERE event_id = ? AND judge_id = ?
-            ''',
-            (data['event_id'], data['judge_id'])
+            'SELECT 1 FROM EventJudges WHERE event_id = ? AND judge_id = ?',
+            (data.event_id, data.judge_id)
         )
-
         if cursor.fetchone():
-
-            raise HTTPException(
-                status_code=400,
-                detail="Judge is already assigned to this event"
-            )
+            raise HTTPException(status_code=400, detail="Judge is already assigned to this event")
 
         cursor.execute(
-            '''
-            INSERT INTO EventJudges
-                (
-                    event_id,
-                    judge_id
-                )
-            VALUES (?, ?)
-            ''',
-            (
-                data['event_id'],
-                data['judge_id']
-            )
+            'INSERT INTO EventJudges (event_id, judge_id) VALUES (?, ?)',
+            (data.event_id, data.judge_id)
         )
 
         conn.commit()
 
-        return {
-            'message': 'Judge assigned successfully'
-        }
+        return {'message': 'Judge assigned successfully'}
 
     finally:
-
         conn.close()
 
 

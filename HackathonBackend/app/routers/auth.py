@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Request, HTTPException, Header
+from fastapi import APIRouter, HTTPException, Header
 from app.database import get_connection
 from jose import jwt, JWTError
 from datetime import datetime, timedelta
+from pydantic import BaseModel
+from typing import Optional, List
 
 router = APIRouter(prefix='/auth', tags=['Authentication'])
 
@@ -9,6 +11,25 @@ router = APIRouter(prefix='/auth', tags=['Authentication'])
 SECRET_KEY = "MYSECRETKEY"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 5
+
+
+# ── REQUEST MODELS ────────────────────────────────────────────────
+class LoginRequest(BaseModel):
+    email   : str
+    password: str
+
+
+class RegisterRequest(BaseModel):
+    cnic          : str
+    firstname     : str
+    middlename    : Optional[str] = None
+    lastname      : str
+    email         : str
+    password      : str
+    date_of_birth : Optional[str] = None
+    city          : Optional[str] = None
+    institution   : Optional[str] = None
+    phone_numbers : Optional[List[str]] = []
 
 
 # ── CREATE JWT TOKEN ─────────────────────────────────────────────
@@ -66,7 +87,7 @@ def verify_token(authorization: str = Header(None)):
 
 # ── REGISTER (Participant only) ─────────────────────────────────
 @router.post('/register')
-async def register(request: Request):
+async def register(data: RegisterRequest):
     """
     Sign-up endpoint.
     Anyone who registers becomes a Participant.
@@ -81,11 +102,9 @@ async def register(request: Request):
         phone_numbers (list)
     """
 
-    data = await request.json()
-
     # ── Validate required fields ─────────────────────────────────
     required = ['cnic', 'firstname', 'lastname', 'email', 'password']
-    missing  = [f for f in required if not data.get(f)]
+    missing  = [f for f in required if not getattr(data, f)]
 
     if missing:
         raise HTTPException(
@@ -116,12 +135,12 @@ async def register(request: Request):
             VALUES (?, ?, ?, ?, ?, ?, 'participant', GETDATE())
             ''',
             (
-                data['cnic'],
-                data['firstname'],
-                data.get('middlename'),
-                data['lastname'],
-                data['email'],
-                data['password'],
+                data.cnic,
+                data.firstname,
+                data.middlename,
+                data.lastname,
+                data.email,
+                data.password,
             )
         )
 
@@ -141,14 +160,14 @@ async def register(request: Request):
             ''',
             (
                 user_id,
-                data.get('date_of_birth'),
-                data.get('city'),
-                data.get('institution'),
+                data.date_of_birth,
+                data.city,
+                data.institution,
             )
         )
 
         # Insert phone numbers
-        for phone in data.get('phone_numbers', []):
+        for phone in set(data.phone_numbers or []):
 
             cursor.execute(
                 '''
@@ -168,7 +187,6 @@ async def register(request: Request):
     except Exception as e:
         conn.rollback()
         err = str(e)
-        # SQL Server error 2627 = unique constraint, 2601 = duplicate key
         if '2627' in err or '2601' in err or 'UNIQUE' in err.upper():
             raise HTTPException(
                 status_code=409,
@@ -186,7 +204,7 @@ async def register(request: Request):
 
 # ── LOGIN ────────────────────────────────────────────────────────
 @router.post('/login')
-async def login(request: Request):
+async def login(data: LoginRequest):
     """
     Login using email + password.
 
@@ -197,9 +215,7 @@ async def login(request: Request):
         participant_id / judge_id / organizer_id
     """
 
-    data = await request.json()
-
-    if not data.get('email') or not data.get('password'):
+    if not data.email or not data.password:
         raise HTTPException(
             status_code=400,
             detail="email and password are required"
@@ -228,7 +244,7 @@ async def login(request: Request):
             WHERE u.email    = ?
               AND u.password = ?
             ''',
-            (data['email'], data['password'])
+            (data.email, data.password)
         )
 
         user = cursor.fetchone()
