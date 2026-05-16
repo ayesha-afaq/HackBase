@@ -29,6 +29,19 @@ class UpdateEventStatusRequest(BaseModel):
     event_status: str
 
 
+class UpdateEventRequest(BaseModel):
+    event_name                : Optional[str]   = None
+    last_date_of_registration : Optional[str]   = None
+    max_team_size             : Optional[int]   = None
+    event_details             : Optional[str]   = None
+    budget                    : Optional[float] = None
+    funding                   : Optional[float] = None
+    first_prize               : Optional[float] = None
+    second_prize              : Optional[float] = None
+    third_prize               : Optional[float] = None
+    event_status              : Optional[str]   = None
+
+
 class AssignJudgeRequest(BaseModel):
     event_id: int
     judge_id: int
@@ -165,6 +178,145 @@ async def create_event(
         conn.close()
 
 
+# ── Update event ──────────────────────────────────────────────────────────────
+@router.put('/update-event/{event_id}')
+async def update_event(
+    event_id: int,
+    data: UpdateEventRequest,
+    user = Depends(verify_token)
+):
+    """
+    Organizer updates their own event.
+
+    Cannot change: event_id, organizer_id, start_date, end_date.
+
+    Updatable:
+        event_name, last_date_of_registration, max_team_size,
+        event_details, budget, funding,
+        first_prize, second_prize, third_prize, event_status
+
+    Validations:
+        - last_date_of_registration must be <= start_date
+        - max_team_size must be >= 1
+        - budget, funding, prizes must be >= 0
+        - event_status must be one of: upcoming, ongoing, completed
+    """
+
+    if user["role"] != "organizer":
+        raise HTTPException(status_code=403, detail="Organizers only")
+
+    conn   = get_connection()
+    cursor = conn.cursor()
+
+    try:
+
+        organizer_id = get_logged_in_organizer(cursor, user["user_id"])
+
+        # Verify ownership and fetch current event dates for validation
+        cursor.execute(
+            '''
+            SELECT start_date, end_date
+            FROM HackathonEvents
+            WHERE event_id = ? AND organizer_id = ?
+            ''',
+            (event_id, organizer_id)
+        )
+
+        event = cursor.fetchone()
+
+        if not event:
+            raise HTTPException(status_code=403, detail="Not your event or event not found")
+
+        current_start = event.start_date
+        current_end   = event.end_date
+
+        # ── Validate provided fields ─────────────────────────────
+        if data.last_date_of_registration is not None:
+            try:
+                reg_date = date.fromisoformat(data.last_date_of_registration)
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid last_date_of_registration format. Use YYYY-MM-DD."
+                )
+            if reg_date > current_start:
+                raise HTTPException(
+                    status_code=400,
+                    detail="last_date_of_registration must be on or before start_date."
+                )
+            if reg_date > current_end:
+                raise HTTPException(
+                    status_code=400,
+                    detail="last_date_of_registration cannot be after end_date."
+                )
+
+        if data.max_team_size is not None and data.max_team_size < 1:
+            raise HTTPException(
+                status_code=400,
+                detail="max_team_size must be at least 1."
+            )
+
+        for field_name, value in [
+            ('budget',       data.budget),
+            ('funding',      data.funding),
+            ('first_prize',  data.first_prize),
+            ('second_prize', data.second_prize),
+            ('third_prize',  data.third_prize),
+        ]:
+            if value is not None and value < 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{field_name} cannot be negative."
+                )
+
+        if data.event_status is not None:
+            valid_statuses = ('upcoming', 'ongoing', 'completed')
+            if data.event_status not in valid_statuses:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid event_status. Choose from: {valid_statuses}"
+                )
+
+        if data.event_name is not None and not data.event_name.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="event_name cannot be empty."
+            )
+
+        # ── Build dynamic UPDATE ─────────────────────────────────
+        fields = {}
+        if data.event_name                is not None: fields['event_name']                = data.event_name.strip()
+        if data.last_date_of_registration is not None: fields['last_date_of_registration'] = data.last_date_of_registration
+        if data.max_team_size             is not None: fields['max_team_size']             = data.max_team_size
+        if data.event_details             is not None: fields['event_details']             = data.event_details
+        if data.budget                    is not None: fields['budget']                    = data.budget
+        if data.funding                   is not None: fields['funding']                   = data.funding
+        if data.first_prize               is not None: fields['first_prize']               = data.first_prize
+        if data.second_prize              is not None: fields['second_prize']              = data.second_prize
+        if data.third_prize               is not None: fields['third_prize']               = data.third_prize
+        if data.event_status              is not None: fields['event_status']              = data.event_status
+
+        if not fields:
+            raise HTTPException(
+                status_code=400,
+                detail="No fields provided to update."
+            )
+
+        set_clause = ', '.join(f"{k} = ?" for k in fields)
+
+        cursor.execute(
+            f'UPDATE HackathonEvents SET {set_clause} WHERE event_id = ?',
+            (*fields.values(), event_id)
+        )
+
+        conn.commit()
+
+        return {'message': 'Event updated successfully'}
+
+    finally:
+        conn.close()
+
+
 # ── Update event status ───────────────────────────────────────────────────────
 @router.put('/update-event-status')
 async def update_event_status(
@@ -229,14 +381,7 @@ def my_events(user = Depends(verify_token)):
                    start_date,
                    end_date,
                    last_date_of_registration,
-                   max_team_size,
-                   event_details,
-                   event_status,
-                   budget,
-                   funding,
-                   first_prize,
-                   second_prize,
-                   third_prize
+                   event_status
             FROM HackathonEvents
             WHERE organizer_id = ?
             ORDER BY start_date DESC
@@ -253,14 +398,7 @@ def my_events(user = Depends(verify_token)):
                 'start_date'                : str(r.start_date),
                 'end_date'                  : str(r.end_date),
                 'last_date_of_registration' : str(r.last_date_of_registration),
-                'max_team_size'             : r.max_team_size,
-                'event_details'             : r.event_details,
                 'event_status'              : r.event_status,
-                'budget'                    : float(r.budget),
-                'funding'                   : float(r.funding),
-                'first_prize'               : float(r.first_prize),
-                'second_prize'              : float(r.second_prize),
-                'third_prize'               : float(r.third_prize),
             }
             for r in rows
         ]

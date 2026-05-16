@@ -509,15 +509,24 @@ def event_leaderboard(event_id: int, user = Depends(verify_token)):
                 MAX(ev.score)           AS highest_score,
                 MIN(ev.score)           AS lowest_score
             FROM   Teams           t
-            INNER JOIN Projects    p  ON p.team_id    = t.team_id
+            INNER JOIN Projects    p  ON p.team_id     = t.team_id
             INNER JOIN Evaluations ev ON ev.project_id = p.project_id
             WHERE  t.event_id = ?
             GROUP  BY t.team_id, t.team_name, p.project_id, p.project_name
+            HAVING COUNT(ev.evaluation_id) = (
+                SELECT COUNT(*) FROM EventJudges WHERE event_id = ?
+            )
             ORDER  BY average_score DESC
             ''',
-            (event_id,)
+            (event_id, event_id)
         )
         rows = cursor.fetchall()
+
+        if not rows:
+            return {
+                'message'    : 'Leaderboard is not available yet. All judges must evaluate all projects first.',
+                'leaderboard': []
+            }
 
         return [
             {

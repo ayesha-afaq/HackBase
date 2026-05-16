@@ -83,22 +83,33 @@ def event_results(event_id: int):
             INNER JOIN Evaluations e  ON p.project_id = e.project_id
             WHERE t.event_id = ?
             GROUP BY t.team_name
+            HAVING COUNT(e.evaluation_id) = (
+                SELECT COUNT(*) FROM EventJudges WHERE event_id = ?
+            )
             ORDER BY avg_score DESC
-        """, (event_id,))
+        """, (event_id, event_id))
 
         rows = cursor.fetchall()
 
-        # FIX: return an empty list instead of 404 when the event exists
-        # but has no evaluated projects yet.
-        return [
-            {
-                "rank"         : rank,
-                "team_name"    : r.team_name,
-                "average_score": float(r.avg_score) if r.avg_score is not None else 0.0,
-                "evaluations"  : r.total_evals
+        if not rows:
+            return {
+                "results_ready": False,
+                "message"      : "Results are not available yet. Evaluation is still in progress.",
+                "leaderboard"  : []
             }
-            for rank, r in enumerate(rows, start=1)
-        ]
+
+        return {
+            "results_ready": True,
+            "leaderboard"  : [
+                {
+                    "rank"         : rank,
+                    "team_name"    : r.team_name,
+                    "average_score": float(r.avg_score) if r.avg_score is not None else 0.0,
+                    "evaluations"  : r.total_evals
+                }
+                for rank, r in enumerate(rows, start=1)
+            ]
+        }
 
     except HTTPException:
         raise

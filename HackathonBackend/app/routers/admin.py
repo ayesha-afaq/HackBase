@@ -31,6 +31,27 @@ class CreateOrganizerRequest(BaseModel):
     phone_numbers: Optional[List[str]] = []
 
 
+class UpdateJudgeRequest(BaseModel):
+    firstname          : Optional[str]   = None
+    middlename         : Optional[str]   = None
+    lastname           : Optional[str]   = None
+    email              : Optional[str]   = None
+    password           : Optional[str]   = None
+    commission_per_eval: Optional[float] = None
+    degrees            : Optional[List[str]] = None
+    phone_numbers      : Optional[List[str]] = None
+
+
+class UpdateOrganizerRequest(BaseModel):
+    firstname    : Optional[str]   = None
+    middlename   : Optional[str]   = None
+    lastname     : Optional[str]   = None
+    email        : Optional[str]   = None
+    password     : Optional[str]   = None
+    salary       : Optional[float] = None
+    phone_numbers: Optional[List[str]] = None
+
+
 # ── HELPER DUPLICATE CHECK FUNCTION ─────────────────────────────
 def check_duplicate_user(cursor, cnic, email):
 
@@ -243,12 +264,10 @@ def all_users(user = Depends(verify_token)):
         '''
         SELECT
             user_id,
-            cnic,
             firstname,
             lastname,
             email,
-            role,
-            created_at
+            role
         FROM Users
         ORDER BY created_at DESC
         '''
@@ -260,12 +279,11 @@ def all_users(user = Depends(verify_token)):
 
     return [
         {
-            'user_id'   : r.user_id,
-            'cnic'      : r.cnic,
-            'name'      : r.firstname + ' ' + r.lastname,
-            'email'     : r.email,
-            'role'      : r.role,
-            'created_at': str(r.created_at),
+            'user_id'  : r.user_id,
+            'firstname': r.firstname,
+            'lastname' : r.lastname,
+            'email'    : r.email,
+            'role'     : r.role,
         }
         for r in rows
     ]
@@ -620,6 +638,191 @@ def user_detail(
     conn.close()
 
     return result
+
+
+# ── Update Judge ──────────────────────────────────────────────────────────────
+@router.put('/update-judge/{judge_id}')
+async def update_judge(
+    judge_id: int,
+    data: UpdateJudgeRequest,
+    user = Depends(verify_token)
+):
+    """
+    Admin updates a judge's details.
+    Only fields provided (non-None) are updated.
+    judge_id cannot be changed.
+
+    Updatable:
+        firstname, middlename, lastname,
+        email, password,
+        commission_per_eval,
+        degrees (replaces existing list),
+        phone_numbers (replaces existing list)
+    """
+
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admins only")
+
+    conn   = get_connection()
+    cursor = conn.cursor()
+
+    try:
+
+        # Verify judge exists and get user_id
+        cursor.execute(
+            'SELECT user_id FROM Judges WHERE judge_id = ?',
+            (judge_id,)
+        )
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Judge not found")
+
+        judge_user_id = row.user_id
+
+        # ── Update Users table ───────────────────────────────────
+        user_fields = {}
+        if data.firstname   is not None: user_fields['firstname']  = data.firstname
+        if data.middlename  is not None: user_fields['middlename'] = data.middlename
+        if data.lastname    is not None: user_fields['lastname']   = data.lastname
+        if data.password    is not None: user_fields['password']   = data.password
+
+        if data.email is not None:
+            # Check email not taken by another user
+            cursor.execute(
+                'SELECT 1 FROM Users WHERE email = ? AND user_id != ?',
+                (data.email, judge_user_id)
+            )
+            if cursor.fetchone():
+                raise HTTPException(status_code=400, detail="Email already in use")
+            user_fields['email'] = data.email
+
+        if user_fields:
+            set_clause = ', '.join(f"{k} = ?" for k in user_fields)
+            cursor.execute(
+                f'UPDATE Users SET {set_clause} WHERE user_id = ?',
+                (*user_fields.values(), judge_user_id)
+            )
+
+        # ── Update Judges table ──────────────────────────────────
+        if data.commission_per_eval is not None:
+            if data.commission_per_eval < 0:
+                raise HTTPException(status_code=400, detail="commission_per_eval cannot be negative")
+            cursor.execute(
+                'UPDATE Judges SET commission_per_eval = ? WHERE judge_id = ?',
+                (data.commission_per_eval, judge_id)
+            )
+
+        # ── Replace degrees if provided ──────────────────────────
+        if data.degrees is not None:
+            cursor.execute('DELETE FROM Degrees WHERE judge_id = ?', (judge_id,))
+            for degree in set(data.degrees):
+                cursor.execute(
+                    'INSERT INTO Degrees (judge_id, degree) VALUES (?, ?)',
+                    (judge_id, degree)
+                )
+
+        # ── Replace phone numbers if provided ────────────────────
+        if data.phone_numbers is not None:
+            cursor.execute('DELETE FROM Telephones WHERE user_id = ?', (judge_user_id,))
+            for phone in set(data.phone_numbers):
+                cursor.execute(
+                    'INSERT INTO Telephones (user_id, phone_number) VALUES (?, ?)',
+                    (judge_user_id, phone)
+                )
+
+        conn.commit()
+
+        return {'message': 'Judge updated successfully'}
+
+    finally:
+        conn.close()
+
+
+# ── Update Organizer ──────────────────────────────────────────────────────────
+@router.put('/update-organizer/{organizer_id}')
+async def update_organizer(
+    organizer_id: int,
+    data: UpdateOrganizerRequest,
+    user = Depends(verify_token)
+):
+    """
+    Admin updates an organizer's details.
+    Only fields provided (non-None) are updated.
+    organizer_id cannot be changed.
+
+    Updatable:
+        firstname, middlename, lastname,
+        email, password,
+        salary,
+        phone_numbers (replaces existing list)
+    """
+
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admins only")
+
+    conn   = get_connection()
+    cursor = conn.cursor()
+
+    try:
+
+        # Verify organizer exists and get user_id
+        cursor.execute(
+            'SELECT user_id FROM Organizers WHERE organizer_id = ?',
+            (organizer_id,)
+        )
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Organizer not found")
+
+        org_user_id = row.user_id
+
+        # ── Update Users table ───────────────────────────────────
+        user_fields = {}
+        if data.firstname  is not None: user_fields['firstname']  = data.firstname
+        if data.middlename is not None: user_fields['middlename'] = data.middlename
+        if data.lastname   is not None: user_fields['lastname']   = data.lastname
+        if data.password   is not None: user_fields['password']   = data.password
+
+        if data.email is not None:
+            cursor.execute(
+                'SELECT 1 FROM Users WHERE email = ? AND user_id != ?',
+                (data.email, org_user_id)
+            )
+            if cursor.fetchone():
+                raise HTTPException(status_code=400, detail="Email already in use")
+            user_fields['email'] = data.email
+
+        if user_fields:
+            set_clause = ', '.join(f"{k} = ?" for k in user_fields)
+            cursor.execute(
+                f'UPDATE Users SET {set_clause} WHERE user_id = ?',
+                (*user_fields.values(), org_user_id)
+            )
+
+        # ── Update Organizers table ──────────────────────────────
+        if data.salary is not None:
+            if data.salary < 0:
+                raise HTTPException(status_code=400, detail="Salary cannot be negative")
+            cursor.execute(
+                'UPDATE Organizers SET salary = ? WHERE organizer_id = ?',
+                (data.salary, organizer_id)
+            )
+
+        # ── Replace phone numbers if provided ────────────────────
+        if data.phone_numbers is not None:
+            cursor.execute('DELETE FROM Telephones WHERE user_id = ?', (org_user_id,))
+            for phone in set(data.phone_numbers):
+                cursor.execute(
+                    'INSERT INTO Telephones (user_id, phone_number) VALUES (?, ?)',
+                    (org_user_id, phone)
+                )
+
+        conn.commit()
+
+        return {'message': 'Organizer updated successfully'}
+
+    finally:
+        conn.close()
 
 
 # ── Delete User ───────────────────────────────────────────────────────────────

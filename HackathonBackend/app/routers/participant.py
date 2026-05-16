@@ -32,6 +32,17 @@ class SubmitProjectRequest(BaseModel):
     description : Optional[str] = None
 
 
+class UpdateProfileRequest(BaseModel):
+    firstname   : Optional[str] = None
+    middlename  : Optional[str] = None
+    lastname    : Optional[str] = None
+    email       : Optional[str] = None
+    password    : Optional[str] = None
+    date_of_birth: Optional[str] = None
+    city        : Optional[str] = None
+    institution : Optional[str] = None
+
+
 # ── View all available events ─────────────────────────────────────────────────
 @router.get('/events')
 def view_events():
@@ -44,9 +55,7 @@ def view_events():
         cursor.execute(
             '''
             SELECT event_id, event_name, start_date, end_date,
-                   last_date_of_registration, max_team_size,
-                   event_details, event_status,
-                   first_prize, second_prize, third_prize
+                   last_date_of_registration, event_status
             FROM HackathonEvents
             ORDER BY start_date DESC
             '''
@@ -61,12 +70,7 @@ def view_events():
                 'start_date'                : str(r.start_date),
                 'end_date'                  : str(r.end_date),
                 'last_date_of_registration' : str(r.last_date_of_registration),
-                'max_team_size'             : r.max_team_size,
-                'event_details'             : r.event_details,
                 'event_status'              : r.event_status,
-                'first_prize'               : float(r.first_prize),
-                'second_prize'              : float(r.second_prize),
-                'third_prize'               : float(r.third_prize),
             }
             for r in rows
         ]
@@ -817,6 +821,276 @@ def profile(
             'created_at'   : str(r.created_at),
             'phone_numbers': phones,
         }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    finally:
+        conn.close()
+
+
+# ── Update my profile ─────────────────────────────────────────────────────────
+@router.put('/update-profile/{participant_id}')
+async def update_profile(
+    participant_id: int,
+    data: UpdateProfileRequest,
+    user = Depends(verify_token)
+):
+    """
+    Participant updates their own profile.
+    Cannot change: participant_id, user_id, cnic, role.
+
+    Updatable (Users table):
+        firstname, middlename, lastname, email, password
+
+    Updatable (Participants table):
+        date_of_birth, city, institution
+    """
+
+    if user["role"] != "participant":
+        raise HTTPException(status_code=403, detail="Participants only")
+
+    if participant_id != user["participant_id"]:
+        raise HTTPException(status_code=403, detail="Unauthorized access")
+
+    conn   = get_connection()
+    cursor = conn.cursor()
+
+    try:
+
+        # Get user_id for this participant
+        cursor.execute(
+            'SELECT user_id FROM Participants WHERE participant_id = ?',
+            (participant_id,)
+        )
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Participant not found")
+
+        p_user_id = row.user_id
+
+        # ── Validate email uniqueness if being changed ────────────
+        if data.email is not None:
+            if not data.email.strip():
+                raise HTTPException(status_code=400, detail="email cannot be empty")
+            cursor.execute(
+                'SELECT 1 FROM Users WHERE email = ? AND user_id != ?',
+                (data.email.strip(), p_user_id)
+            )
+            if cursor.fetchone():
+                raise HTTPException(status_code=400, detail="Email already in use by another account")
+
+        # ── Validate date_of_birth format if provided ─────────────
+        if data.date_of_birth is not None:
+            try:
+                date.fromisoformat(data.date_of_birth)
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid date_of_birth format. Use YYYY-MM-DD."
+                )
+
+        # ── Update Users table ────────────────────────────────────
+        user_fields = {}
+        if data.firstname  is not None:
+            if not data.firstname.strip():
+                raise HTTPException(status_code=400, detail="firstname cannot be empty")
+            user_fields['firstname'] = data.firstname.strip()
+        if data.middlename is not None: user_fields['middlename'] = data.middlename.strip() or None
+        if data.lastname   is not None:
+            if not data.lastname.strip():
+                raise HTTPException(status_code=400, detail="lastname cannot be empty")
+            user_fields['lastname'] = data.lastname.strip()
+        if data.email      is not None: user_fields['email']    = data.email.strip()
+        if data.password   is not None:
+            if not data.password:
+                raise HTTPException(status_code=400, detail="password cannot be empty")
+            user_fields['password'] = data.password
+
+        if user_fields:
+            set_clause = ', '.join(f"{k} = ?" for k in user_fields)
+            cursor.execute(
+                f'UPDATE Users SET {set_clause} WHERE user_id = ?',
+                (*user_fields.values(), p_user_id)
+            )
+
+        # ── Update Participants table ─────────────────────────────
+        participant_fields = {}
+        if data.date_of_birth is not None: participant_fields['date_of_birth'] = data.date_of_birth
+        if data.city          is not None: participant_fields['city']          = data.city.strip() or None
+        if data.institution   is not None: participant_fields['institution']   = data.institution.strip() or None
+
+        if participant_fields:
+            set_clause = ', '.join(f"{k} = ?" for k in participant_fields)
+            cursor.execute(
+                f'UPDATE Participants SET {set_clause} WHERE participant_id = ?',
+                (*participant_fields.values(), participant_id)
+            )
+
+        if not user_fields and not participant_fields:
+            raise HTTPException(status_code=400, detail="No fields provided to update")
+
+        conn.commit()
+
+        return {'message': 'Profile updated successfully'}
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+    finally:
+        conn.close()
+
+
+# ── View results for all enrolled events (only fully evaluated ones) ──────────
+@router.get('/my-results/{participant_id}')
+def my_results(
+    participant_id: int,
+    user = Depends(verify_token)
+):
+    """
+    Returns leaderboard results for every event the participant is registered in.
+    Each event entry includes a results_ready flag:
+      - True  → all judges have evaluated all projects; leaderboard is included
+      - False → evaluation still in progress; leaderboard is empty
+    """
+
+    if user["role"] != "participant":
+        raise HTTPException(status_code=403, detail="Participants only")
+
+    if participant_id != user["participant_id"]:
+        raise HTTPException(status_code=403, detail="Unauthorized access")
+
+    conn   = get_connection()
+    cursor = conn.cursor()
+
+    try:
+
+        # ── Fetch all events this participant is registered in ────
+        cursor.execute(
+            '''
+            SELECT he.event_id, he.event_name, he.event_status
+            FROM EventRegistrations er
+            INNER JOIN HackathonEvents he ON er.event_id = he.event_id
+            WHERE er.participant_id = ?
+            ORDER BY he.start_date DESC
+            ''',
+            (participant_id,)
+        )
+        events = cursor.fetchall()
+
+        if not events:
+            return []
+
+        results = []
+
+        for ev in events:
+
+            event_id     = ev.event_id
+            event_name   = ev.event_name
+            event_status = ev.event_status
+
+            # ── Count judges assigned to this event ───────────────
+            cursor.execute(
+                'SELECT COUNT(*) FROM EventJudges WHERE event_id = ?',
+                (event_id,)
+            )
+            total_judges = cursor.fetchone()[0]
+
+            # ── Count submitted projects in this event ────────────
+            cursor.execute(
+                '''
+                SELECT COUNT(*) FROM Projects p
+                INNER JOIN Teams t ON p.team_id = t.team_id
+                WHERE t.event_id = ?
+                ''',
+                (event_id,)
+            )
+            total_projects = cursor.fetchone()[0]
+
+            # ── Determine if all projects are fully evaluated ─────
+            fully_evaluated = False
+
+            if total_judges > 0 and total_projects > 0:
+                cursor.execute(
+                    '''
+                    SELECT COUNT(*) FROM Projects p
+                    INNER JOIN Teams t ON p.team_id = t.team_id
+                    WHERE t.event_id = ?
+                      AND (
+                          SELECT COUNT(*) FROM Evaluations e
+                          WHERE e.project_id = p.project_id
+                      ) < ?
+                    ''',
+                    (event_id, total_judges)
+                )
+                incomplete = cursor.fetchone()[0]
+                fully_evaluated = (incomplete == 0)
+
+            if not fully_evaluated:
+                results.append({
+                    'event_id'     : event_id,
+                    'event_name'   : event_name,
+                    'event_status' : event_status,
+                    'results_ready': False,
+                    'message'      : 'Results not available yet. Evaluation is still in progress.',
+                    'leaderboard'  : []
+                })
+                continue
+
+            # ── Fetch ranked leaderboard for this event ───────────
+            cursor.execute(
+                '''
+                SELECT
+                    t.team_id,
+                    t.team_name,
+                    p.project_id,
+                    p.project_name,
+                    p.github_link,
+                    COUNT(ev.evaluation_id) AS total_evaluations,
+                    AVG(ev.score)           AS average_score,
+                    MAX(ev.score)           AS highest_score,
+                    MIN(ev.score)           AS lowest_score
+                FROM   Teams           t
+                INNER JOIN Projects    p  ON p.team_id     = t.team_id
+                INNER JOIN Evaluations ev ON ev.project_id = p.project_id
+                WHERE  t.event_id = ?
+                GROUP  BY t.team_id, t.team_name, p.project_id, p.project_name, p.github_link
+                ORDER  BY average_score DESC
+                ''',
+                (event_id,)
+            )
+            rows = cursor.fetchall()
+
+            results.append({
+                'event_id'     : event_id,
+                'event_name'   : event_name,
+                'event_status' : event_status,
+                'results_ready': True,
+                'leaderboard'  : [
+                    {
+                        'rank'             : rank,
+                        'team_id'          : r.team_id,
+                        'team_name'        : r.team_name,
+                        'project_id'       : r.project_id,
+                        'project_name'     : r.project_name,
+                        'github_link'      : r.github_link,
+                        'total_evaluations': r.total_evaluations,
+                        'average_score'    : round(float(r.average_score), 2),
+                        'highest_score'    : float(r.highest_score),
+                        'lowest_score'     : float(r.lowest_score),
+                    }
+                    for rank, r in enumerate(rows, start=1)
+                ]
+            })
+
+        return results
 
     except HTTPException:
         raise
