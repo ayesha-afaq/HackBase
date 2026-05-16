@@ -157,7 +157,6 @@ async def create_event(
                 max_team_size,
                 event_details,
                 organizer_id,
-                created_by,
                 budget,
                 funding,
                 first_prize,
@@ -166,7 +165,7 @@ async def create_event(
                 event_status
             )
         OUTPUT INSERTED.event_id
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''',
         (
             data['event_name'],
@@ -176,7 +175,6 @@ async def create_event(
             data['max_team_size'],
             data.get('event_details'),
             organizer_id,
-            user["user_id"],
             data.get('budget', 0),
             data.get('funding', 0),
             data.get('first_prize', 0),
