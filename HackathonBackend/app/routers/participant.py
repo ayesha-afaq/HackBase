@@ -112,13 +112,13 @@ async def register_event(
         event = cursor.fetchone()
 
         if not event:
-            return {'message': 'Event not found'}
+            raise HTTPException(status_code=404, detail='Event not found')
 
         if event.event_status != 'upcoming':
-            return {'message': 'Registration is closed for this event'}
+            raise HTTPException(status_code=400, detail='Registration is closed for this event')
 
         if date.today() > event.last_date_of_registration:
-            return {'message': 'Registration deadline has passed'}
+            raise HTTPException(status_code=400, detail='Registration deadline has passed')
 
         cursor.execute(
             '''
@@ -130,7 +130,7 @@ async def register_event(
         )
 
         if cursor.fetchone():
-            return {'message': 'You are already registered for this event'}
+            raise HTTPException(status_code=400, detail='You are already registered for this event')
 
         cursor.execute(
             '''
@@ -142,7 +142,7 @@ async def register_event(
 
         conn.commit()
 
-        return {'message': 'Registered in event successfully'}
+        return {'success': True, 'message': 'Registered in event successfully'}
 
     except HTTPException:
         raise
@@ -241,10 +241,10 @@ async def create_team(
         event = cursor.fetchone()
 
         if not event:
-            return {'message': 'Event not found'}
+            raise HTTPException(status_code=404, detail='Event not found')
 
         if event.event_status != 'upcoming':
-            return {'message': 'Teams can only be created for upcoming events'}
+            raise HTTPException(status_code=400, detail='Teams can only be created for upcoming events')
 
         cursor.execute(
             '''
@@ -256,7 +256,7 @@ async def create_team(
         )
 
         if not cursor.fetchone():
-            return {'message': 'You must register in the event before creating a team'}
+            raise HTTPException(status_code=403, detail='You must register in the event before creating a team')
 
         cursor.execute(
             '''
@@ -268,7 +268,7 @@ async def create_team(
         )
 
         if cursor.fetchone():
-            return {'message': 'You are already in a team for this event'}
+            raise HTTPException(status_code=400, detail='You are already in a team for this event')
 
         cursor.execute(
             '''
@@ -280,7 +280,7 @@ async def create_team(
         )
 
         if cursor.fetchone():
-            return {'message': 'Team name already exists in this event'}
+            raise HTTPException(status_code=400, detail='Team name already exists in this event')
 
         # Generate unique team code (max 20 attempts to avoid infinite loop)
         team_code = None
@@ -331,6 +331,7 @@ async def create_team(
         conn.commit()
 
         return {
+            'success'  : True,
             'message'  : 'Team created successfully',
             'team_id'  : team_id,
             'team_code': team_code
@@ -376,10 +377,10 @@ async def join_team(
         event = cursor.fetchone()
 
         if not event:
-            return {'message': 'Event not found'}
+            raise HTTPException(status_code=404, detail='Event not found')
 
         if event.event_status != 'upcoming':
-            return {'message': 'Cannot join teams for this event now'}
+            raise HTTPException(status_code=400, detail='Cannot join teams for this event now')
 
         cursor.execute(
             '''
@@ -391,7 +392,7 @@ async def join_team(
         )
 
         if not cursor.fetchone():
-            return {'message': 'You must register in the event before joining a team'}
+            raise HTTPException(status_code=403, detail='You must register in the event before joining a team')
 
         cursor.execute(
             '''
@@ -403,7 +404,7 @@ async def join_team(
         )
 
         if cursor.fetchone():
-            return {'message': 'You are already in a team for this event'}
+            raise HTTPException(status_code=400, detail='You are already in a team for this event')
 
         cursor.execute(
             '''
@@ -417,7 +418,7 @@ async def join_team(
         team = cursor.fetchone()
 
         if not team:
-            return {'message': 'Invalid team code or wrong event'}
+            raise HTTPException(status_code=404, detail='Invalid team code or wrong event')
 
         team_id = team.team_id
 
@@ -433,7 +434,7 @@ async def join_team(
         current_members = cursor.fetchone().member_count
 
         if current_members >= event.max_team_size:
-            return {'message': 'Team is full'}
+            raise HTTPException(status_code=400, detail='Team is full')
 
         cursor.execute(
             '''
@@ -446,7 +447,7 @@ async def join_team(
 
         conn.commit()
 
-        return {'message': 'Joined team successfully'}
+        return {'success': True, 'message': 'Joined team successfully'}
 
     except HTTPException:
         raise
@@ -493,7 +494,7 @@ def my_team(
         team = cursor.fetchone()
 
         if not team:
-            return {'message': 'You are not in any team for this event'}
+            raise HTTPException(status_code=404, detail='You are not in any team for this event')
 
         # Get team members
         cursor.execute(
@@ -564,13 +565,13 @@ async def leave_team(
         team = cursor.fetchone()
 
         if not team:
-            return {'message': 'Team not found'}
+            raise HTTPException(status_code=404, detail='Team not found')
 
         if team.event_status != 'upcoming':
-            return {'message': 'You cannot leave a team after the event has started'}
+            raise HTTPException(status_code=400, detail='You cannot leave a team after the event has started')
 
         if team.team_lead == participant_id:
-            return {'message': 'Team lead cannot leave. Delete the team instead.'}
+            raise HTTPException(status_code=400, detail='Team lead cannot leave. Delete the team instead.')
 
         cursor.execute(
             '''
@@ -582,7 +583,7 @@ async def leave_team(
         )
 
         if not cursor.fetchone():
-            return {'message': 'Participant is not a member of this team'}
+            raise HTTPException(status_code=403, detail='Participant is not a member of this team')
 
         cursor.execute(
             '''
@@ -594,7 +595,7 @@ async def leave_team(
 
         conn.commit()
 
-        return {'message': 'Left team successfully'}
+        return {'success': True, 'message': 'Left team successfully'}
 
     except HTTPException:
         raise
@@ -638,10 +639,10 @@ async def submit_project(
         team = cursor.fetchone()
 
         if not team:
-            return {'message': 'Team not found'}
+            raise HTTPException(status_code=404, detail='Team not found')
 
         if team.event_status != 'ongoing':
-            return {'message': 'Projects can only be submitted during ongoing events'}
+            raise HTTPException(status_code=400, detail='Projects can only be submitted during ongoing events')
 
         cursor.execute(
             '''
@@ -661,7 +662,7 @@ async def submit_project(
         )
 
         if cursor.fetchone():
-            return {'message': 'Your team has already submitted a project'}
+            raise HTTPException(status_code=400, detail='Your team has already submitted a project')
 
         cursor.execute(
             '''
@@ -682,6 +683,7 @@ async def submit_project(
         conn.commit()
 
         return {
+            'success'   : True,
             'message'   : 'Project submitted successfully',
             'project_id': project_id
         }
@@ -740,7 +742,7 @@ def my_project(
         r = cursor.fetchone()
 
         if not r:
-            return {'message': 'No project submitted yet'}
+            raise HTTPException(status_code=404, detail='No project submitted yet')
 
         return {
             'project_id'     : r.project_id,
@@ -795,7 +797,7 @@ def profile(
         r = cursor.fetchone()
 
         if not r:
-            return {'message': 'Participant not found'}
+            raise HTTPException(status_code=404, detail='Participant not found')
 
         # Get phone numbers
         cursor.execute(
@@ -935,7 +937,7 @@ async def update_profile(
 
         conn.commit()
 
-        return {'message': 'Profile updated successfully'}
+        return {'success': True, 'message': 'Profile updated successfully'}
 
     except HTTPException:
         raise

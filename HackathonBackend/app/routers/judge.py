@@ -346,6 +346,7 @@ async def evaluate_project(
         conn.commit()
 
         return {
+            'success'        : True,
             'message'        : 'Evaluation submitted successfully',
             'judges_done'    : done,
             'judges_total'   : total_judges,
@@ -397,7 +398,7 @@ async def update_feedback(
         )
         conn.commit()
 
-        return {'message': 'Feedback updated successfully'}
+        return {'success': True, 'message': 'Feedback updated successfully'}
 
     except HTTPException:
         raise

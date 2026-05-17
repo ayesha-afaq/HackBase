@@ -734,7 +734,7 @@ async def update_judge(
 
         conn.commit()
 
-        return {'message': 'Judge updated successfully'}
+        return {'success': True, 'message': 'Judge updated successfully'}
 
     finally:
         conn.close()
@@ -821,7 +821,7 @@ async def update_organizer(
 
         conn.commit()
 
-        return {'message': 'Organizer updated successfully'}
+        return {'success': True, 'message': 'Organizer updated successfully'}
 
     finally:
         conn.close()
@@ -869,5 +869,6 @@ def delete_user(
     conn.close()
 
     return {
+        'success': True,
         'message': 'User deleted successfully'
     }
