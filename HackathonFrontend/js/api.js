@@ -39,6 +39,11 @@ async function loadPage(page) {
       const data = await get('/admin/users');
       setState({ data: { users: data }, loading: false });
 
+    } else if (page === 'admin-user-detail') {
+      const uid = state.data.currentUserId;
+      const data = await get('/admin/users/' + uid);
+      setState({ data: { ...state.data, userDetail: data }, loading: false });
+
     } else if (page === 'admin-judges') {
       const data = await get('/admin/judges');
       setState({ data: { judges: data }, loading: false });
@@ -54,6 +59,10 @@ async function loadPage(page) {
     } else if (page === 'my-events') {
       const data = await get('/organizer/my-events');
       setState({ data: { events: data }, loading: false });
+
+    } else if (page === 'update-event') {
+      // currentEvent already in state from event-detail; nothing extra to fetch
+      setState({ loading: false });
 
     } else if (page === 'judge-assigned') {
       const data = await get('/judge/assigned-projects');
@@ -84,6 +93,12 @@ async function loadPage(page) {
       const data = await get('/participant/my-events/' + pid);
       setState({ data: { events: data }, loading: false });
 
+    } else if (page === 'participant-create-team' || page === 'participant-join-team') {
+      // Load registered events so the form can show a dropdown
+      const pid = u.participant_id;
+      const data = await get('/participant/my-events/' + pid);
+      setState({ data: { ...state.data, events: data }, loading: false });
+
     } else if (page === 'participant-profile') {
       const pid = u.participant_id;
       const data = await get('/participant/profile/' + pid);
@@ -96,16 +111,21 @@ async function loadPage(page) {
         setState({ data: { team: { message: 'You are not registered for any event yet.' } }, loading: false });
         return;
       }
-      const eventId = myEvents[0].event_id;
+      // Show team picker if registered in multiple events; default to first
+      const eventId = state.data.selectedTeamEventId || myEvents[0].event_id;
       const teamData = await get('/participant/my-team/' + pid + '/' + eventId);
       let projectData = null;
       if (teamData.team_id) {
         try {
           projectData = await get('/participant/my-project/' + teamData.team_id);
-          if (projectData.message) projectData = null;
-        } catch(e) { /* no project yet */ }
+        } catch(e) { /* no project yet — 404 is expected */ }
       }
-      setState({ data: { team: teamData, project: projectData }, loading: false });
+      setState({ data: { team: teamData, project: projectData, myEvents, selectedTeamEventId: eventId }, loading: false });
+
+    } else if (page === 'participant-results') {
+      const pid = u.participant_id;
+      const data = await get('/participant/my-results/' + pid);
+      setState({ data: { results: data }, loading: false });
 
     } else {
       setState({ loading: false });

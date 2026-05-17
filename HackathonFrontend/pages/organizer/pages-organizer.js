@@ -14,20 +14,7 @@ function renderMyEvents() {
           ${statusBadge(r.event_status)}
         </div>
         <div class="text-muted text-sm mb-4">${r.start_date?.slice(0,10)} → ${r.end_date?.slice(0,10)}</div>
-        <div class="grid-3" style="gap:8px; margin-bottom:14px;">
-          <div class="stat-card" style="padding:10px 12px;">
-            <div class="stat-label">1st Prize</div>
-            <div style="font-family:var(--mono);font-size:14px;">PKR ${r.first_prize}</div>
-          </div>
-          <div class="stat-card" style="padding:10px 12px;">
-            <div class="stat-label">Budget</div>
-            <div style="font-family:var(--mono);font-size:14px;">PKR ${r.budget}</div>
-          </div>
-          <div class="stat-card" style="padding:10px 12px;">
-            <div class="stat-label">Max Team</div>
-            <div style="font-family:var(--mono);font-size:14px;">${r.max_team_size}</div>
-          </div>
-        </div>
+        <div class="text-muted text-sm mb-4">Reg deadline: ${r.last_date_of_registration?.slice(0,10)}</div>
         <div class="flex gap-2">
           <button class="btn btn-ghost btn-sm" data-action="event-detail" data-id="${r.event_id}">Manage</button>
           <button class="btn btn-ghost btn-sm" data-action="event-teams" data-id="${r.event_id}">Teams</button>
@@ -77,6 +64,7 @@ function renderEventDetail() {
     </div>
     <div class="flex gap-2">
       <button class="btn btn-ghost btn-sm" data-page="my-events">← Back to My Events</button>
+      <button class="btn btn-ghost btn-sm" data-action="edit-event" data-id="${ev.event_id}">Edit</button>
       <button class="btn btn-ghost btn-sm" data-action="event-teams" data-id="${ev.event_id}">Teams</button>
       <button class="btn btn-ghost btn-sm" data-action="event-registrations" data-id="${ev.event_id}">Registrations</button>
       <button class="btn btn-ghost btn-sm" data-action="event-judges-list" data-id="${ev.event_id}">Judges</button>
@@ -210,6 +198,55 @@ function renderAssignJudge() {
       <input type="hidden" name="event_id" value="${eid}">
       <div class="field"><label>Judge ID</label><input type="number" name="judge_id" placeholder="Enter judge ID" required></div>
       <button class="btn btn-primary" type="submit" ${state.loading?'disabled':''}>Assign</button>
+    </form>
+  </div>`;
+}
+
+function renderUpdateEvent() {
+  const ev = state.data.currentEvent;
+  if (!ev) return '<div class="empty">No event selected. <button class="btn btn-ghost btn-sm" data-page="my-events">Go to My Events</button></div>';
+  return `
+  <div class="page-header flex justify-between">
+    <div><div class="page-title">Edit Event</div><div class="page-sub">${ev.event_name}</div></div>
+    <button class="btn btn-ghost btn-sm" data-action="event-detail" data-id="${ev.event_id}">← Back to Detail</button>
+  </div>
+  <div class="card" style="max-width:580px">
+    <form id="update-event-form">
+      <input type="hidden" name="event_id" value="${ev.event_id}">
+      <div class="field">
+        <label>Event Name</label>
+        <input name="event_name" value="${ev.event_name}" required>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Registration Deadline</label>
+          <input type="date" name="last_date_of_registration" value="${ev.last_date_of_registration?.slice(0,10)}">
+        </div>
+        <div class="field">
+          <label>Max Team Size</label>
+          <input type="number" name="max_team_size" min="1" max="10" value="${ev.max_team_size}">
+        </div>
+      </div>
+      <div class="field">
+        <label>Event Details</label>
+        <textarea name="event_details">${ev.event_details || ''}</textarea>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Budget (PKR)</label><input type="number" name="budget" min="0" value="${ev.budget}"></div>
+        <div class="field"><label>Funding (PKR)</label><input type="number" name="funding" min="0" value="${ev.funding}"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>1st Prize</label><input type="number" name="first_prize" min="0" value="${ev.first_prize}"></div>
+        <div class="field"><label>2nd Prize</label><input type="number" name="second_prize" min="0" value="${ev.second_prize}"></div>
+      </div>
+      <div class="field">
+        <label>3rd Prize</label>
+        <input type="number" name="third_prize" min="0" value="${ev.third_prize}">
+      </div>
+      <div class="alert alert-info" style="font-size:12px; margin-bottom:12px;">
+        Start date and end date cannot be changed after creation.
+      </div>
+      <button class="btn btn-primary" type="submit" ${state.loading?'disabled':''}>Save Changes</button>
     </form>
   </div>`;
 }

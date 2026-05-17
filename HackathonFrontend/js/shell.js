@@ -51,6 +51,8 @@ function renderNav(role) {
     ${navItem('participant-create-team', icons.plus, 'Create Team')}
     ${navItem('participant-join-team', icons.team, 'Join Team')}
     ${navItem('participant-submit', icons.projects, 'Submit Project')}
+    <div class="nav-section">Results</div>
+    ${navItem('participant-results', icons.rank, 'My Results')}
     <div class="nav-section">Profile</div>
     ${navItem('participant-profile', icons.profile, 'Profile')}`;
 
@@ -103,14 +105,18 @@ function renderPage() {
     case 'public-event-results': return renderPublicEventResults();
     // ADMIN
     case 'admin-users': return renderAdminUsers();
+    case 'admin-user-detail': return renderAdminUserDetail();
     case 'admin-judges': return renderAdminJudges();
     case 'admin-organizers': return renderAdminOrganizers();
     case 'admin-events': return renderAdminEvents();
     case 'admin-create-judge': return renderCreateJudge();
     case 'admin-create-organizer': return renderCreateOrganizer();
+    case 'admin-edit-judge': return renderEditJudge();
+    case 'admin-edit-organizer': return renderEditOrganizer();
     // ORGANIZER
     case 'my-events': return renderMyEvents();
     case 'create-event': return renderCreateEvent();
+    case 'update-event': return renderUpdateEvent();
     case 'event-detail': return renderEventDetail();
     case 'event-teams': return renderEventTeams();
     case 'event-registrations': return renderEventRegistrations();
@@ -124,6 +130,7 @@ function renderPage() {
     case 'judge-events': return renderJudgeEvents();
     case 'judge-profile': return renderJudgeProfile();
     case 'judge-leaderboard': return renderJudgeLeaderboard();
+    case 'judge-project-detail': return renderJudgeProjectDetail();
     // PARTICIPANT
     case 'participant-events': return renderParticipantEvents();
     case 'participant-my-events': return renderParticipantMyEvents();
@@ -132,6 +139,7 @@ function renderPage() {
     case 'participant-submit': return renderSubmitProject();
     case 'participant-my-team': return renderMyTeam();
     case 'participant-profile': return renderParticipantProfile();
+    case 'participant-results': return renderParticipantResults();
     default: return `<div class="empty">Page not found</div>`;
   }
 }

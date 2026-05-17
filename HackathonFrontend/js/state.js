@@ -12,7 +12,18 @@ let state = {
   modal: null,
 };
 
-function setState(patch) { Object.assign(state, patch); render(); }
+let _successTimer = null;
+
+function setState(patch) {
+  Object.assign(state, patch);
+  render();
+  // Auto-clear success messages after 4 seconds
+  if (patch.success) {
+    clearTimeout(_successTimer);
+    _successTimer = setTimeout(() => { state.success = null; render(); }, 4000);
+  }
+}
+
 function setPage(page, extra={}) { setState({ page, error: null, success: null, ...extra }); loadPage(page); }
 
 // ── STATUS BADGE ──────────────────────────────────────────────────────────
