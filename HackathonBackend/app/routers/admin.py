@@ -166,6 +166,7 @@ async def create_judge(
         conn.commit()
 
         return {
+            'success' : True,
             'message' : 'Judge created successfully',
             'judge_id': judge_id
         }
@@ -233,6 +234,7 @@ async def create_organizer(
         conn.commit()
 
         return {
+            'success'     : True,
             'message'     : 'Organizer created successfully',
             'organizer_id': organizer_id
         }

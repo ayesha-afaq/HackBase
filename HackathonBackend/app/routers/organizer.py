@@ -170,6 +170,7 @@ async def create_event(
         conn.commit()
 
         return {
+            'success' : True,
             'message' : 'Event created successfully',
             'event_id': event_id
         }
@@ -311,7 +312,7 @@ async def update_event(
 
         conn.commit()
 
-        return {'message': 'Event updated successfully'}
+        return {'success': True, 'message': 'Event updated successfully'}
 
     finally:
         conn.close()
@@ -347,7 +348,7 @@ async def update_event_status(
 
         conn.commit()
 
-        return {'message': 'Event status updated successfully'}
+        return {'success': True, 'message': 'Event status updated successfully'}
 
     finally:
         conn.close()
@@ -507,7 +508,7 @@ async def assign_judge(
 
         conn.commit()
 
-        return {'message': 'Judge assigned successfully'}
+        return {'success': True, 'message': 'Judge assigned successfully'}
 
     finally:
         conn.close()
@@ -837,9 +838,7 @@ def delete_team(
 
         conn.commit()
 
-        return {
-            "message": "Team deleted successfully"
-        }
+        return {'success': True, 'message': 'Team deleted successfully'}
 
     finally:
 

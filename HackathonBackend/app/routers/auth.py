@@ -198,6 +198,7 @@ async def register(data: RegisterRequest):
         conn.close()
 
     return {
+        'success': True,
         'message': 'Registered successfully. You can now log in.'
     }
 
@@ -280,6 +281,7 @@ async def login(data: LoginRequest):
     token = create_access_token(token_payload)
 
     return {
+        'success' : True,
         'message' : 'Login successful',
         'token'   : token,
         'user_id' : user.user_id,
