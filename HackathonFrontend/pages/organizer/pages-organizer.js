@@ -36,18 +36,18 @@ function renderCreateEvent() {
       </div>
       <div class="field-row">
         <div class="field"><label>Registration Deadline</label><input type="date" name="last_date_of_registration" required></div>
-        <div class="field"><label>Max Team Size</label><input type="number" name="max_team_size" min="1" max="10" value="4" required></div>
+        <div class="field"><label>Max Team Size</label><input type="number" name="max_team_size" min="1" max="10" required></div>
       </div>
-      <div class="field"><label>Event Details</label><textarea name="event_details" placeholder="Describe the hackathon..."></textarea></div>
+      <div class="field"><label>Event Details</label><textarea name="event_details" placeholder="Describe the hackathon..." required></textarea></div>
       <div class="field-row">
-        <div class="field"><label>Budget (PKR)</label><input type="number" name="budget" min="0" value="0"></div>
-        <div class="field"><label>Funding (PKR)</label><input type="number" name="funding" min="0" value="0"></div>
+        <div class="field"><label>Budget (PKR)</label><input type="number" name="budget" min="0" required placeholder="0"></div>
+        <div class="field"><label>Funding (PKR)</label><input type="number" name="funding" min="0" required placeholder="0"></div>
       </div>
       <div class="field-row">
-        <div class="field"><label>1st Prize</label><input type="number" name="first_prize" min="0" value="0"></div>
-        <div class="field"><label>2nd Prize</label><input type="number" name="second_prize" min="0" value="0"></div>
+        <div class="field"><label>1st Prize (PKR)</label><input type="number" name="first_prize" min="0" required placeholder="0"></div>
+        <div class="field"><label>2nd Prize (PKR)</label><input type="number" name="second_prize" min="0" required placeholder="0"></div>
       </div>
-      <div class="field"><label>3rd Prize</label><input type="number" name="third_prize" min="0" value="0"></div>
+      <div class="field"><label>3rd Prize (PKR)</label><input type="number" name="third_prize" min="0" required placeholder="0"></div>
       <button class="btn btn-primary" type="submit" ${state.loading?'disabled':''}>Create Event</button>
     </form>
   </div>`;
@@ -90,6 +90,9 @@ function renderEventDetail() {
 
 function renderEventTeams() {
   const rows = state.data.teams || [];
+  const expandedTeamId = state.data.expandedTeamId || null;
+  const teamMembers = state.data.teamMembers || {};
+
   return `
   <div class="page-header flex justify-between">
     <div><div class="page-title">Teams</div><div class="page-sub">${rows.length} teams registered</div></div>
@@ -98,15 +101,41 @@ function renderEventTeams() {
   <div class="card">
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Team</th><th>Code</th><th>Lead</th><th>Registered</th><th>Action</th></tr></thead>
+        <thead><tr><th>Team</th><th>Code</th><th>Lead</th><th>Registered</th><th>Actions</th></tr></thead>
         <tbody>${rows.map(r=>`
           <tr>
             <td style="font-weight:500">${r.team_name}</td>
             <td><code class="mono" style="background:var(--bg3);padding:2px 8px;border-radius:4px;font-size:12px;">${r.team_code}</code></td>
             <td class="text-muted">${r.team_lead}</td>
             <td class="text-muted">${r.registration_date?.slice(0,10)}</td>
-            <td><button class="btn btn-danger btn-sm" data-action="delete-team" data-id="${r.team_id}">Delete</button></td>
-          </tr>`).join('') || '<tr><td colspan="5" class="empty">No teams yet</td></tr>'}
+            <td class="flex gap-2">
+              <button class="btn btn-ghost btn-sm" data-action="view-team-members" data-id="${r.team_id}">
+                ${expandedTeamId === r.team_id ? 'Hide Members' : 'View Members'}
+              </button>
+              <button class="btn btn-danger btn-sm" data-action="delete-team" data-id="${r.team_id}">Delete</button>
+            </td>
+          </tr>
+          ${expandedTeamId === r.team_id ? `
+          <tr>
+            <td colspan="5" style="padding:0;background:var(--bg3);">
+              <div style="padding:14px 16px;">
+                <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.07em;">Members</div>
+                ${teamMembers[r.team_id] ? `
+                  <div style="display:flex;flex-wrap:wrap;gap:10px;">
+                    ${teamMembers[r.team_id].map(m=>`
+                      <div style="display:flex;align-items:center;gap:8px;background:var(--bg2);border:0.5px solid var(--border);border-radius:8px;padding:8px 12px;">
+                        <div class="user-avatar" style="width:26px;height:26px;font-size:10px;">${m.name.split(' ').map(w=>w[0]).slice(0,2).join('')}</div>
+                        <div>
+                          <div style="font-size:13px;font-weight:500;">${m.name}</div>
+                          <div style="font-size:11px;color:var(--text3);">${m.email}</div>
+                        </div>
+                      </div>`).join('')}
+                  </div>
+                ` : '<div class="text-muted text-sm">Loading...</div>'}
+              </div>
+            </td>
+          </tr>` : ''}
+        `).join('') || '<tr><td colspan="5" class="empty">No teams yet</td></tr>'}
         </tbody>
       </table>
     </div>

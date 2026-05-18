@@ -68,7 +68,27 @@ async function handleAction(action, dataset) {
       await del(`/organizer/delete-team/${id}`);
       const eid = state.data.currentEventId;
       const teams = await get('/organizer/event-teams/' + eid);
-      setState({ loading: false, success: 'Team deleted', data: { ...state.data, teams } });
+      setState({ loading: false, success: 'Team deleted', data: { ...state.data, teams, expandedTeamId: null } });
+
+    } else if (action === 'view-team-members') {
+      // Toggle: if already expanded, collapse it
+      if (state.data.expandedTeamId === id) {
+        setState({ data: { ...state.data, expandedTeamId: null } });
+        return;
+      }
+      // Fetch members if not already loaded
+      const teamMembers = state.data.teamMembers || {};
+      if (!teamMembers[id]) {
+        setState({ data: { ...state.data, expandedTeamId: id } });
+        try {
+          const members = await get('/organizer/team-members/' + id);
+          setState({ data: { ...state.data, expandedTeamId: id, teamMembers: { ...state.data.teamMembers, [id]: members } } });
+        } catch(e) {
+          setState({ error: e.message, data: { ...state.data, expandedTeamId: null } });
+        }
+      } else {
+        setState({ data: { ...state.data, expandedTeamId: id } });
+      }
 
     // ── Judge ─────────────────────────────────────────────────────────────
     } else if (action === 'evaluate') {

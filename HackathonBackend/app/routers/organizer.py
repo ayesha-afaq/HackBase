@@ -843,3 +843,72 @@ def delete_team(
     finally:
 
         conn.close()
+
+
+# ── View team members ───────────────────────────────────────────
+@router.get('/team-members/{team_id}')
+def team_members(
+    team_id: int,
+    user = Depends(verify_token)
+):
+
+    if user["role"] != "organizer":
+        raise HTTPException(status_code=403, detail="Organizers only")
+
+    conn   = get_connection()
+    cursor = conn.cursor()
+
+    try:
+
+        organizer_id = get_logged_in_organizer(cursor, user["user_id"])
+
+        # Verify team belongs to organizer's event
+        cursor.execute(
+            '''
+            SELECT t.team_id
+            FROM Teams t
+            INNER JOIN HackathonEvents h
+                ON t.event_id = h.event_id
+            WHERE t.team_id = ?
+              AND h.organizer_id = ?
+            ''',
+            (team_id, organizer_id)
+        )
+
+        if not cursor.fetchone():
+            raise HTTPException(status_code=403, detail="Not your team")
+
+        cursor.execute(
+            '''
+            SELECT
+                u.firstname,
+                u.lastname,
+                u.email,
+                tm.participant_id,
+                t.team_lead
+            FROM TeamMembers tm
+            INNER JOIN Participants p
+                ON tm.participant_id = p.participant_id
+            INNER JOIN Users u
+                ON p.user_id = u.user_id
+            INNER JOIN Teams t
+                ON tm.team_id = t.team_id
+            WHERE tm.team_id = ?
+            ''',
+            (team_id,)
+        )
+
+        rows = cursor.fetchall()
+
+        return [
+            {
+                'participant_id': r.participant_id,
+                'name'          : r.firstname + ' ' + r.lastname,
+                'email'         : r.email,
+                'is_lead'       : r.participant_id == r.team_lead,
+            }
+            for r in rows
+        ]
+
+    finally:
+        conn.close()
