@@ -1,8 +1,9 @@
 from fastapi import APIRouter, HTTPException, Header
 from app.database import get_connection
+from app.validators import validate_password_strength
 from jose import jwt, JWTError
 from datetime import datetime, timedelta
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Optional, List
 
 router = APIRouter(prefix='/auth', tags=['Authentication'])
@@ -30,6 +31,11 @@ class RegisterRequest(BaseModel):
     city          : Optional[str] = None
     institution   : Optional[str] = None
     phone_numbers : Optional[List[str]] = []
+
+    @field_validator('password')
+    @classmethod
+    def password_strength(cls, v):
+        return validate_password_strength(v)
 
 
 # ── CREATE JWT TOKEN ─────────────────────────────────────────────
@@ -227,7 +233,7 @@ async def login(data: LoginRequest):
 
     try:
 
-        # Single query: fetch user + role-specific ID via LEFT JOINs
+        # Fetch user by email only, then compare password in Python
         cursor.execute(
             '''
             SELECT
@@ -235,6 +241,7 @@ async def login(data: LoginRequest):
                 u.firstname,
                 u.lastname,
                 u.role,
+                u.password,
                 p.participant_id,
                 j.judge_id,
                 o.organizer_id
@@ -242,10 +249,9 @@ async def login(data: LoginRequest):
             LEFT JOIN Participants p ON p.user_id = u.user_id
             LEFT JOIN Judges       j ON j.user_id = u.user_id
             LEFT JOIN Organizers   o ON o.user_id = u.user_id
-            WHERE u.email    = ?
-              AND u.password = ?
+            WHERE u.email = ?
             ''',
-            (data.email, data.password)
+            (data.email,)
         )
 
         user = cursor.fetchone()
@@ -253,7 +259,8 @@ async def login(data: LoginRequest):
     finally:
         conn.close()
 
-    if not user:
+    # ── Case-sensitive password check in Python ───────────────────
+    if not user or user.password != data.password:
         raise HTTPException(
             status_code=401,
             detail='Invalid email or password'

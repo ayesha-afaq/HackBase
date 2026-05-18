@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from app.database import get_connection
 from app.routers.auth import verify_token
-from pydantic import BaseModel
+from app.validators import validate_password_strength, validate_cnic_format
+from pydantic import BaseModel, field_validator
 from typing import Optional, List
 
 router = APIRouter(prefix='/admin', tags=['Admin'])
@@ -11,13 +12,39 @@ router = APIRouter(prefix='/admin', tags=['Admin'])
 class CreateJudgeRequest(BaseModel):
     cnic               : str
     firstname          : str
-    middlename         : Optional[str]   = None
+    middlename         : str = None
     lastname           : str
     email              : str
     password           : str
     commission_per_eval: float
-    degrees            : Optional[List[str]] = []
-    phone_numbers      : Optional[List[str]] = []
+    degrees            : List[str]
+    phone_numbers      : List[str]
+
+    @field_validator('degrees')
+    @classmethod
+    def degrees_not_empty(cls, v):
+        if not v:
+            raise ValueError('At least one degree is required')
+        return v
+
+    @field_validator('phone_numbers')
+    @classmethod
+    def phones_not_empty(cls, v):
+        if not v:
+            raise ValueError('At least one phone number is required')
+        return v
+
+    @field_validator('commission_per_eval')
+    @classmethod
+    def commission_non_negative(cls, v):
+        if v <= 0:
+            raise ValueError('commission_per_eval must be greater than 0')
+        return v
+
+    @field_validator('password')
+    @classmethod
+    def password_strength(cls, v):
+        return validate_password_strength(v)
 
 
 class CreateOrganizerRequest(BaseModel):
@@ -29,6 +56,11 @@ class CreateOrganizerRequest(BaseModel):
     password     : str
     salary       : Optional[float] = None
     phone_numbers: Optional[List[str]] = []
+
+    @field_validator('password')
+    @classmethod
+    def password_strength(cls, v):
+        return validate_password_strength(v)
 
 
 class UpdateJudgeRequest(BaseModel):
@@ -453,22 +485,25 @@ def all_events(user = Depends(verify_token)):
     cursor.execute(
         '''
         SELECT
-            event_id,
-            event_name,
-            start_date,
-            end_date,
-            last_date_of_registration,
-            max_team_size,
-            organizer_id,
-            budget,
-            funding,
-            first_prize,
-            second_prize,
-            third_prize,
-            event_details,
-            event_status
-        FROM HackathonEvents
-        ORDER BY start_date DESC
+            e.event_id,
+            e.event_name,
+            e.start_date,
+            e.end_date,
+            e.last_date_of_registration,
+            e.max_team_size,
+            e.organizer_id,
+            u.firstname + ' ' + u.lastname AS organizer_name,
+            e.budget,
+            e.funding,
+            e.first_prize,
+            e.second_prize,
+            e.third_prize,
+            e.event_details,
+            e.event_status
+        FROM HackathonEvents e
+        INNER JOIN Organizers o ON e.organizer_id = o.organizer_id
+        INNER JOIN Users u      ON o.user_id      = u.user_id
+        ORDER BY e.start_date DESC
         '''
     )
 
@@ -485,6 +520,7 @@ def all_events(user = Depends(verify_token)):
             'last_date_of_registration' : str(r.last_date_of_registration),
             'max_team_size'             : r.max_team_size,
             'organizer_id'              : r.organizer_id,
+            'organizer_name'            : r.organizer_name,
             'budget'                    : float(r.budget),
             'funding'                   : float(r.funding),
             'first_prize'               : float(r.first_prize),
