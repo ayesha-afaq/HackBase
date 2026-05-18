@@ -152,6 +152,7 @@ function renderCreateJudge() {
         <div class="field"><label>First Name</label><input name="firstname" required></div>
         <div class="field"><label>Last Name</label><input name="lastname" required></div>
       </div>
+      <div class="field"><label>Middle Name <span class="text-muted">(optional)</span></label><input name="middlename" placeholder="Leave blank if none"></div>
       <div class="field"><label>CNIC</label><input name="cnic" placeholder="12345-1234567-1" required></div>
       <div class="field"><label>Email</label><input type="email" name="email" required></div>
       <div class="field"><label>Password</label><input type="password" name="password" required></div>
@@ -172,6 +173,7 @@ function renderCreateOrganizer() {
         <div class="field"><label>First Name</label><input name="firstname" required></div>
         <div class="field"><label>Last Name</label><input name="lastname" required></div>
       </div>
+      <div class="field"><label>Middle Name <span class="text-muted">(optional)</span></label><input name="middlename" placeholder="Leave blank if none"></div>
       <div class="field"><label>CNIC</label><input name="cnic" placeholder="12345-1234567-1" required></div>
       <div class="field"><label>Email</label><input type="email" name="email" required></div>
       <div class="field"><label>Password</label><input type="password" name="password" required></div>
@@ -196,6 +198,7 @@ function renderEditJudge() {
         <div class="field"><label>First Name</label><input name="firstname" placeholder="Leave blank to keep"></div>
         <div class="field"><label>Last Name</label><input name="lastname" placeholder="Leave blank to keep"></div>
       </div>
+      <div class="field"><label>Middle Name <span class="text-muted">(optional)</span></label><input name="middlename" placeholder="Leave blank to keep"></div>
       <div class="field"><label>Email</label><input type="email" name="email" placeholder="Leave blank to keep"></div>
       <div class="field"><label>New Password</label><input type="password" name="password" placeholder="Leave blank to keep"></div>
       <div class="field"><label>Commission per Evaluation (PKR)</label><input type="number" name="commission_per_eval" min="0" step="0.01" placeholder="Leave blank to keep"></div>
@@ -220,6 +223,7 @@ function renderEditOrganizer() {
         <div class="field"><label>First Name</label><input name="firstname" placeholder="Leave blank to keep"></div>
         <div class="field"><label>Last Name</label><input name="lastname" placeholder="Leave blank to keep"></div>
       </div>
+      <div class="field"><label>Middle Name <span class="text-muted">(optional)</span></label><input name="middlename" placeholder="Leave blank to keep"></div>
       <div class="field"><label>Email</label><input type="email" name="email" placeholder="Leave blank to keep"></div>
       <div class="field"><label>New Password</label><input type="password" name="password" placeholder="Leave blank to keep"></div>
       <div class="field"><label>Salary (PKR)</label><input type="number" name="salary" min="0" step="0.01" placeholder="Leave blank to keep"></div>

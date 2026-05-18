@@ -103,6 +103,10 @@ function renderRegister() {
       <div class="field"><label>Last Name</label><input name="lastname" placeholder="Doe" required autocomplete="family-name"></div>
     </div>
     <div class="field">
+      <label>Middle Name <span style="color:var(--text3);font-weight:400">(optional)</span></label>
+      <input name="middlename" placeholder="Leave blank if none" autocomplete="additional-name">
+    </div>
+    <div class="field">
       <label>CNIC</label>
       <input name="cnic" placeholder="12345-1234567-1" required
         pattern="\\d{5}-\\d{7}-\\d" title="Format: 12345-1234567-1">
