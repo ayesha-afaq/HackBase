@@ -301,6 +301,24 @@ async def evaluate_project(
         if not cursor.fetchone():
             raise HTTPException(status_code=403, detail='You are not assigned to evaluate this project')
 
+        # ── Block evaluation if event is completed ────────────────────────────
+        cursor.execute(
+            '''
+            SELECT he.event_status
+            FROM   HackathonEvents he
+            INNER JOIN Teams    t  ON t.event_id  = he.event_id
+            INNER JOIN Projects p  ON p.team_id   = t.team_id
+            WHERE  p.project_id = ?
+            ''',
+            (data.project_id,)
+        )
+        event_row = cursor.fetchone()
+        if event_row and event_row.event_status == 'completed':
+            raise HTTPException(
+                status_code=400,
+                detail='Evaluations cannot be submitted after the event has been completed'
+            )
+
         cursor.execute(
             'SELECT 1 FROM Evaluations WHERE project_id = ? AND judge_id = ?',
             (data.project_id, judge_id)

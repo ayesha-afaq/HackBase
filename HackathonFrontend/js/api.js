@@ -8,7 +8,20 @@ async function api(method, path, body) {
   if (body) opts.body = JSON.stringify(body);
   const r = await fetch(API + path, opts);
   const json = await r.json();
-  if (!r.ok) throw new Error(json.detail || JSON.stringify(json));
+  if (!r.ok) {
+    // FastAPI validation errors return detail as an array of objects.
+    // Normalize to a readable string in all cases.
+    let detail = json.detail;
+    if (Array.isArray(detail)) {
+      detail = detail.map(e => {
+        const field = e.loc ? e.loc[e.loc.length - 1] : 'field';
+        return `${field}: ${e.msg}`;
+      }).join('; ');
+    } else if (typeof detail !== 'string') {
+      detail = JSON.stringify(detail);
+    }
+    throw new Error(detail || 'An unexpected error occurred');
+  }
   return json;
 }
 
