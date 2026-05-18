@@ -482,7 +482,7 @@ def my_team(
         # Get team info
         cursor.execute(
             '''
-            SELECT t.team_id, t.team_name, t.team_code
+            SELECT t.team_id, t.team_name, t.team_code, t.team_lead
             FROM Teams t
             INNER JOIN TeamMembers tm
                 ON t.team_id = tm.team_id
@@ -517,6 +517,7 @@ def my_team(
             'team_id'  : team.team_id,
             'team_name': team.team_name,
             'team_code': team.team_code,
+            'is_lead'  : team.team_lead == participant_id,
             'members'  : [
                 {
                     'participant_id': m.participant_id,
@@ -596,6 +597,67 @@ async def leave_team(
         conn.commit()
 
         return {'success': True, 'message': 'Left team successfully'}
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+    finally:
+        conn.close()
+
+
+# ── Delete my team (team lead only) ──────────────────────────────────────────
+@router.delete('/delete-team/{team_id}')
+async def delete_team(
+    team_id: int,
+    user = Depends(verify_token)
+):
+    """
+    Only the team lead can delete their own team.
+    Cascade handles TeamMembers and Projects automatically.
+    Only allowed while the event is still upcoming.
+    """
+
+    if user["role"] != "participant":
+        raise HTTPException(status_code=403, detail="Participants only")
+
+    participant_id = user["participant_id"]
+
+    conn   = get_connection()
+    cursor = conn.cursor()
+
+    try:
+
+        cursor.execute(
+            '''
+            SELECT t.team_lead, he.event_status
+            FROM Teams t
+            INNER JOIN HackathonEvents he ON t.event_id = he.event_id
+            WHERE t.team_id = ?
+            ''',
+            (team_id,)
+        )
+
+        team = cursor.fetchone()
+
+        if not team:
+            raise HTTPException(status_code=404, detail='Team not found')
+
+        if team.team_lead != participant_id:
+            raise HTTPException(status_code=403, detail='Only the team lead can delete the team')
+
+        if team.event_status != 'upcoming':
+            raise HTTPException(status_code=400, detail='Team can only be deleted before the event starts')
+
+        # CASCADE handles TeamMembers and Projects automatically
+        cursor.execute('DELETE FROM Teams WHERE team_id = ?', (team_id,))
+
+        conn.commit()
+
+        return {'success': True, 'message': 'Team deleted successfully'}
 
     except HTTPException:
         raise

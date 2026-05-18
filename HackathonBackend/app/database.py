@@ -7,8 +7,8 @@ import pyodbc
 #     "Trusted_Connection=yes;"
 #     "TrustServerCertificate=yes;")
 
-conn_str_ayesha=( "DRIVER={ODBC Driver 17 for SQL Server};"
-    "SERVER=MAHAMMASROOR29\\SQLEXPRESS;"
+conn_str_ayesha=( "DRIVER={ODBC Driver 18 for SQL Server};"
+    "SERVER=areeba\SQLEXPRESS;"
     "DATABASE=Hackathon;"
     "Trusted_Connection=yes;"
     "TrustServerCertificate=yes;")

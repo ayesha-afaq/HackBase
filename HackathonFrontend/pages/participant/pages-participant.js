@@ -169,7 +169,10 @@ function renderMyTeam() {
       <button class="btn btn-primary btn-sm" style="margin-top:10px;" data-page="participant-submit">Submit Project</button>
     `}
     <div class="sep"></div>
-    <button class="btn btn-danger btn-sm" id="leave-team-btn" data-team-id="${team.team_id}">Leave Team</button>
+    ${team.is_lead
+      ? `<button class="btn btn-danger btn-sm" id="delete-team-btn" data-team-id="${team.team_id}">Delete Team</button>`
+      : `<button class="btn btn-danger btn-sm" id="leave-team-btn" data-team-id="${team.team_id}">Leave Team</button>`
+    }
   </div>`;
 }
 

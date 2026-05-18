@@ -421,4 +421,19 @@ function bindEvents() {
       setState({ loading: false, error: err.message });
     }
   });
+
+  // ── Participant: delete team button (team lead only) ──────────────────
+  const deleteTeamBtn = document.getElementById('delete-team-btn');
+  if (deleteTeamBtn) deleteTeamBtn.addEventListener('click', async () => {
+    if (!confirm('Delete your team? This will remove all members and any submitted project. This cannot be undone.')) return;
+    const teamId = parseInt(deleteTeamBtn.dataset.teamId);
+    setState({ loading: true, error: null });
+    try {
+      await del('/participant/delete-team/' + teamId);
+      setState({ loading: false, success: 'Team deleted successfully', data: { ...state.data, selectedTeamEventId: null } });
+      setPage('participant-my-team');
+    } catch(err) {
+      setState({ loading: false, error: err.message });
+    }
+  });
 }
